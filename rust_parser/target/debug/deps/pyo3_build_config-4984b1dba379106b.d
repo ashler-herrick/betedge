@@ -1,0 +1,13 @@
+/home/ashler/Documents/betedge_data/rust_parser/target/debug/deps/libpyo3_build_config-4984b1dba379106b.rmeta: /home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/lib.rs /home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/errors.rs /home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/impl_.rs /home/ashler/Documents/betedge_data/rust_parser/target/debug/build/pyo3-build-config-9c499ffd16d6b8cb/out/pyo3-build-config-file.txt /home/ashler/Documents/betedge_data/rust_parser/target/debug/build/pyo3-build-config-9c499ffd16d6b8cb/out/pyo3-build-config.txt
+
+/home/ashler/Documents/betedge_data/rust_parser/target/debug/deps/libpyo3_build_config-4984b1dba379106b.rlib: /home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/lib.rs /home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/errors.rs /home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/impl_.rs /home/ashler/Documents/betedge_data/rust_parser/target/debug/build/pyo3-build-config-9c499ffd16d6b8cb/out/pyo3-build-config-file.txt /home/ashler/Documents/betedge_data/rust_parser/target/debug/build/pyo3-build-config-9c499ffd16d6b8cb/out/pyo3-build-config.txt
+
+/home/ashler/Documents/betedge_data/rust_parser/target/debug/deps/pyo3_build_config-4984b1dba379106b.d: /home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/lib.rs /home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/errors.rs /home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/impl_.rs /home/ashler/Documents/betedge_data/rust_parser/target/debug/build/pyo3-build-config-9c499ffd16d6b8cb/out/pyo3-build-config-file.txt /home/ashler/Documents/betedge_data/rust_parser/target/debug/build/pyo3-build-config-9c499ffd16d6b8cb/out/pyo3-build-config.txt
+
+/home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/lib.rs:
+/home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/errors.rs:
+/home/ashler/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.18.3/src/impl_.rs:
+/home/ashler/Documents/betedge_data/rust_parser/target/debug/build/pyo3-build-config-9c499ffd16d6b8cb/out/pyo3-build-config-file.txt:
+/home/ashler/Documents/betedge_data/rust_parser/target/debug/build/pyo3-build-config-9c499ffd16d6b8cb/out/pyo3-build-config.txt:
+
+# env-dep:OUT_DIR=/home/ashler/Documents/betedge_data/rust_parser/target/debug/build/pyo3-build-config-9c499ffd16d6b8cb/out

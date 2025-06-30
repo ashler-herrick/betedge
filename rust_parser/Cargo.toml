@@ -1,0 +1,45 @@
+[package]
+name = "rust-parser"
+version = "0.3.0"
+edition = "2021"
+description = "Ultra-fast option filtering exposed to Python via PyO3"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "fast_parser"
+crate-type = ["cdylib"]
+
+[dependencies]
+# PyO3 for building Python extensions
+pyo3 = { version = "0.18", features = ["extension-module"] }
+
+# Serde for deserializing JSON
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Date/time handling
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+
+# Arrow dependencies
+arrow = "53.0"
+arrow-ipc = "53.0"
+arrow-schema = "53.0"
+parquet = "53.0"
+
+# Performance dependencies
+simd-json = { version = "0.13", optional = true }
+rayon = { version = "1.7", optional = true }
+rustc-hash = "1.1"
+
+[features]
+default = ["arrow"]
+simd = ["simd-json"]
+parallel = ["rayon"]
+arrow = []
+fast = ["simd", "parallel", "arrow"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+opt-level = 3

@@ -1,0 +1,67 @@
+[project]
+name = "betedge-data"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]>=0.115.13",
+    "httpx[http2]>=0.28.1",
+    "pydantic-settings>=2.10.0",
+    "ijson>=3.2.0",
+    "psutil>=5.9.0",
+    "pyarrow>=20.0.0",
+    "orjson>=3.10.12",
+    "confluent-kafka>=2.10.1",
+    "rust-parser",
+    "pydantic>=2.11.7",
+]
+
+
+[tool.uv.sources]
+rust-parser = { path = "rust_parser/target/wheels/rust_parser-0.3.0-cp311-cp311-manylinux_2_34_x86_64.whl" }
+
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["betedge_data"]
+
+[tool.hatch.metadata]
+allow-direct-references=true
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+]
+
+[dependency-groups]
+dev = [
+    "maturin>=1.9.0",
+    "polars>=1.31.0",
+    "pytest>=8.4.1",
+    "requests>=2.32.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::RuntimeWarning"
+]
+markers = [
+    "asyncio: mark test as an async test",
+    "integration: mark test as integration test (requires services)",
+    "unit: mark test as unit test (no external dependencies)"
+]
