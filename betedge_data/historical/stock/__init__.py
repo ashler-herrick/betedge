@@ -1,1 +1,0 @@
-"""Historical stock data module."""

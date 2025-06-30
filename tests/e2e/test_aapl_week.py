@@ -21,6 +21,7 @@ import time
 from datetime import datetime
 from typing import Dict, List, Tuple
 
+import pytest
 import requests
 
 from betedge_data.manager.models import generate_date_list
@@ -28,6 +29,9 @@ from betedge_data.manager.models import generate_date_list
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Mark all tests in this module as e2e tests
+pytestmark = pytest.mark.e2e
 
 # Test configuration
 API_BASE_URL = "http://localhost:8000"
@@ -226,46 +230,36 @@ def display_test_summary(
         print("   - API server is running on localhost:8000")
 
 
-def main() -> int:
-    """Run the end-to-end test."""
-    print("🚀 Starting End-to-End AAPL Options Test")
-    print("=" * 70)
-    print()
+def test_aapl_week_e2e():
+    """Run the end-to-end AAPL options test."""
+    logger.info("🚀 Starting End-to-End AAPL Options Test")
 
     total_start_time = time.time()
 
     # Step 1: Get business week date range
-    print("Step 1: Calculating business week date range...")
+    logger.info("Step 1: Calculating business week date range...")
     start_date, end_date = get_business_week_range()
     expected_dates = generate_date_list(start_date, end_date)
 
-    print(f"✓ Business week: {start_date} to {end_date}")
-    print(f"✓ Trading days: {', '.join(expected_dates)} ({len(expected_dates)} days)")
-    print()
+    logger.info(f"✓ Business week: {start_date} to {end_date}")
+    logger.info(f"✓ Trading days: {', '.join(expected_dates)} ({len(expected_dates)} days)")
 
     # Step 2: Check API health
-    print("Step 2: Checking API health...")
-    if not check_api_health():
-        print("❌ API health check failed. Ensure API server is running.")
-        return 1
-    print()
+    logger.info("Step 2: Checking API health...")
+    health_ok = check_api_health()
+    assert health_ok, "API health check failed. Ensure API server is running."
 
     # Step 3: Make options request
-    print("Step 3: Making historical options request...")
+    logger.info("Step 3: Making historical options request...")
     response_data = make_options_request(start_date, end_date)
-    print()
 
     # Step 4: Validate response
-    print("Step 4: Validating response...")
+    logger.info("Step 4: Validating response...")
     success = validate_response(response_data, expected_dates)
-    print()
+    assert success, "Response validation failed"
 
     # Step 5: Display summary
     total_time = time.time() - total_start_time
     display_test_summary(start_date, end_date, expected_dates, success, total_time)
 
-    return 0 if success else 1
-
-
-if __name__ == "__main__":
-    exit(main())
+    logger.info("🎉 End-to-end test completed successfully!")

@@ -54,7 +54,7 @@ class HistoricalOptionClient:
     def get_filtered_bulk_quote_as_parquet(self, request: HistoricalOptionRequest) -> io.BytesIO:
         """
         Get filtered option data as Parquet bytes for streaming.
-        
+
         Uses time-matched underlying prices from historical stock data for accurate
         moneyness filtering.
 
@@ -65,39 +65,39 @@ class HistoricalOptionClient:
             BytesIO containing filtered Parquet data ready for streaming
         """
         logger.info(f"Starting parquet data fetch for {request.root} from {request.start_date} to {request.end_date}")
-        
+
         # Validate return format
         if request.return_format != "parquet":
             raise ValueError(f"Expected return_format='parquet', got '{request.return_format}'")
-        
+
         # Fetch option and stock data
         logger.debug(f"Fetching option and stock data for {request.root}")
         option_json, stock_json = self._fetch_option_and_stock_data(request)
-        logger.debug(f"Data fetch complete - option JSON length: {len(option_json)}, stock JSON length: {len(stock_json)}")
-        
+        logger.debug(
+            f"Data fetch complete - option JSON length: {len(option_json)}, stock JSON length: {len(stock_json)}"
+        )
+
         # Apply Rust filtering with both option and stock data
         current_yyyymmdd = int(request.start_date)  # Use start_date for DTE calculation
-        
+
         try:
-            logger.debug(f"Starting Rust filtering with params: current_date={current_yyyymmdd}, max_dte={request.max_dte}, base_pct={request.base_pct}")
+            logger.debug(
+                f"Starting Rust filtering with params: current_date={current_yyyymmdd}, max_dte={request.max_dte}, base_pct={request.base_pct}"
+            )
             # Pass both option and stock JSON to Rust parser
             parquet_bytes = fast_parser.filter_contracts_to_parquet_bytes(
-                option_json,
-                stock_json,
-                current_yyyymmdd,
-                request.max_dte,
-                request.base_pct
+                option_json, stock_json, current_yyyymmdd, request.max_dte, request.base_pct
             )
-            
+
             if isinstance(parquet_bytes, list):
                 parquet_bytes = bytes(parquet_bytes)
-                
+
             # Wrap in BytesIO for streaming
             parquet_buffer = io.BytesIO(parquet_bytes)
-            
+
             logger.info(f"Filtering complete: {len(parquet_bytes)} bytes Parquet data generated")
             return parquet_buffer
-            
+
         except Exception as e:
             logger.error(f"Rust filtering failed for {request.root}: {str(e)}")
             logger.debug(f"Rust filtering error details for {request.root}", exc_info=True)
@@ -106,7 +106,7 @@ class HistoricalOptionClient:
     def get_filtered_bulk_quote_as_ipc(self, request: HistoricalOptionRequest) -> io.BytesIO:
         """
         Get filtered option data as Arrow IPC bytes for streaming.
-        
+
         Uses time-matched underlying prices from historical stock data for accurate
         moneyness filtering.
 
@@ -119,32 +119,28 @@ class HistoricalOptionClient:
         # Validate return format
         if request.return_format != "ipc":
             raise ValueError(f"Expected return_format='ipc', got '{request.return_format}'")
-        
+
         # Fetch option and stock data
         option_json, stock_json = self._fetch_option_and_stock_data(request)
-        
+
         # Apply Rust filtering with both option and stock data
         current_yyyymmdd = int(request.start_date)  # Use start_date for DTE calculation
-        
+
         try:
             # Pass both option and stock JSON to Rust parser
             ipc_bytes = fast_parser.filter_contracts_to_ipc_bytes(
-                option_json,
-                stock_json,
-                current_yyyymmdd,
-                request.max_dte,
-                request.base_pct
+                option_json, stock_json, current_yyyymmdd, request.max_dte, request.base_pct
             )
-            
+
             if isinstance(ipc_bytes, list):
                 ipc_bytes = bytes(ipc_bytes)
-                
+
             # Wrap in BytesIO for streaming
             ipc_buffer = io.BytesIO(ipc_bytes)
-            
+
             logger.info(f"Filtering complete: {len(ipc_bytes)} bytes Arrow IPC data generated")
             return ipc_buffer
-            
+
         except Exception as e:
             logger.error(f"Rust filtering failed: {e}")
             raise RuntimeError(f"Option filtering failed: {e}") from e
@@ -152,10 +148,10 @@ class HistoricalOptionClient:
     def _fetch_option_and_stock_data(self, request: HistoricalOptionRequest) -> tuple[str, str]:
         """
         Fetch option and stock data in parallel and return as JSON strings.
-        
+
         Args:
             request: HistoricalOptionRequest with all parameters
-            
+
         Returns:
             Tuple of (option_json, stock_json)
         """
@@ -169,7 +165,7 @@ class HistoricalOptionClient:
             # Submit both tasks
             stock_future = executor.submit(self._fetch_stock_json, request)
             option_future = executor.submit(self._fetch_option_bulk_quote, request)
-            
+
             # Collect results
             try:
                 stock_json = stock_future.result()
@@ -178,10 +174,12 @@ class HistoricalOptionClient:
                 logger.error(f"Failed to fetch stock data for {request.root}: {str(e)}")
                 logger.debug(f"Stock data fetch error details for {request.root}", exc_info=True)
                 raise RuntimeError(f"Stock data fetch failed: {e}") from e
-                
+
             try:
                 option_json = option_future.result()
-                logger.info(f"Successfully fetched option data for {request.root} exp {request.exp}: {len(option_json)} characters")
+                logger.info(
+                    f"Successfully fetched option data for {request.root} exp {request.exp}: {len(option_json)} characters"
+                )
             except Exception as e:
                 logger.error(f"Failed to fetch option data for {request.root} exp {request.exp}: {str(e)}")
                 logger.debug(f"Option data fetch error details for {request.root} exp {request.exp}", exc_info=True)
@@ -191,10 +189,10 @@ class HistoricalOptionClient:
     def _fetch_option_bulk_quote(self, request: HistoricalOptionRequest) -> str:
         """
         Fetch option data and return as JSON string.
-        
+
         Args:
             request: HistoricalOptionRequest with all parameters
-            
+
         Returns:
             JSON string containing all option data
         """
@@ -241,54 +239,64 @@ class HistoricalOptionClient:
         response_data = {
             "header": {
                 "latency_ms": 0,
-                "format": ["ms_of_day", "bid_size", "bid_exchange", "bid", "bid_condition", 
-                          "ask_size", "ask_exchange", "ask", "ask_condition", "date"]
+                "format": [
+                    "ms_of_day",
+                    "bid_size",
+                    "bid_exchange",
+                    "bid",
+                    "bid_condition",
+                    "ask_size",
+                    "ask_exchange",
+                    "ask",
+                    "ask_condition",
+                    "date",
+                ],
             },
-            "response": all_records
+            "response": all_records,
         }
 
-        return orjson.dumps(response_data, default=_decimal_default).decode('utf-8')
-    
+        return orjson.dumps(response_data, default=_decimal_default).decode("utf-8")
+
     def _fetch_stock_json(self, request: HistoricalOptionRequest) -> str:
         """
         Fetch stock quote data and return as JSON string.
-        
+
         Args:
             request: HistoricalOptionRequest with all parameters
-            
+
         Returns:
             JSON string containing stock quote data
         """
         url = self._build_stock_url(request)
         logger.debug(f"Fetching stock data for {request.root}")
-        
+
         # Collect all stock ticks
         all_ticks = []
         current_url = url
         page_count = 0
-        
+
         while current_url:
             page_count += 1
             logger.debug(f"Fetching stock page {page_count}")
-            
+
             try:
                 response = self.client.get(current_url)
                 response.raise_for_status()
-                
+
                 # Parse the response to get ticks
                 data = response.json()
                 if "response" in data and isinstance(data["response"], list):
                     all_ticks.extend(data["response"])
-                
+
                 # Handle pagination
                 header = data.get("header", {})
                 current_url = header.get("next_page")
-                
+
                 if current_url and str(current_url).lower() not in ["null", "none", ""]:
                     logger.debug("Next page available for stock data")
                 else:
                     current_url = None
-                    
+
             except httpx.HTTPStatusError as e:
                 error_detail = e.response.text if hasattr(e.response, "text") else str(e)
                 logger.error(f"HTTP error fetching stock data: {e.response.status_code}: {error_detail}")
@@ -296,22 +304,30 @@ class HistoricalOptionClient:
             except Exception as e:
                 logger.error(f"Error fetching stock data: {e}")
                 raise e
-        
+
         logger.info(f"Collected {len(all_ticks)} stock ticks across {page_count} pages")
-        
+
         # Convert to expected format
         stock_response = {
             "header": {
                 "latency_ms": 0,
-                "format": ["ms_of_day", "bid_size", "bid_exchange", "bid", "bid_condition", 
-                          "ask_size", "ask_exchange", "ask", "ask_condition", "date"]
+                "format": [
+                    "ms_of_day",
+                    "bid_size",
+                    "bid_exchange",
+                    "bid",
+                    "bid_condition",
+                    "ask_size",
+                    "ask_exchange",
+                    "ask",
+                    "ask_condition",
+                    "date",
+                ],
             },
-            "response": all_ticks
+            "response": all_ticks,
         }
-        
-        return orjson.dumps(stock_response, default=_decimal_default).decode('utf-8')
 
-
+        return orjson.dumps(stock_response, default=_decimal_default).decode("utf-8")
 
     def _build_option_url(self, request: HistoricalOptionRequest) -> str:
         """Build URL for ThetaData bulk option quote endpoint."""
@@ -333,7 +349,7 @@ class HistoricalOptionClient:
 
         base_url = f"{self.config.base_url}/bulk_hist/option/quote"
         return f"{base_url}?{urlencode(params)}"
-    
+
     def _build_stock_url(self, request: HistoricalOptionRequest) -> str:
         """Build URL for ThetaData historical stock quote endpoint."""
         params = {
@@ -357,10 +373,10 @@ class HistoricalOptionClient:
     def _stream_json_items(self, response: httpx.Response) -> Iterator[Dict[str, Any]]:
         """
         Stream individual option contract items from ThetaData JSON response.
-        
+
         Args:
             response: httpx Response object
-            
+
         Yields:
             Individual contract records with ticks and contract info
         """
@@ -384,10 +400,10 @@ class HistoricalOptionClient:
     def _get_json_header(self, response: httpx.Response) -> Dict[str, Any]:
         """
         Extract header from ThetaData response for pagination.
-        
+
         Args:
             response: httpx Response object
-            
+
         Returns:
             Header dict or empty dict if parsing fails
         """

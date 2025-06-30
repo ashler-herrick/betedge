@@ -27,9 +27,9 @@ def test_bulk_option_quotes():
                 exp=0,  # All expirations
                 ivl=60000,  # 1 minute bars
             )
-            
+
             print(f"Retrieved {len(quotes)} quote records")
-            
+
             # Display first few records for inspection
             for i, quote in enumerate(quotes[:3]):
                 print(f"Quote Record {i + 1}:")
@@ -51,40 +51,34 @@ def test_url_building():
     print("=" * 50)
     print("Testing URL Building")
     print("=" * 50)
-    
+
     with BulkHistoricalOptionClient() as client:
         from betedge_data.historical.option.models import BulkHistoricalOptionRequest
-        
+
         # Test basic request
-        request = BulkHistoricalOptionRequest(
-            root="AAPL",
-            start_date="20240315",
-            end_date="20240315",
-            exp=0,
-            ivl=60000
-        )
-        
+        request = BulkHistoricalOptionRequest(root="AAPL", start_date="20240315", end_date="20240315", exp=0, ivl=60000)
+
         url = client._build_bulk_url(request)
         print(f"Generated URL: {url}")
-        
+
         # Verify URL components
         expected_params = [
             "root=AAPL",
-            "exp=0", 
+            "exp=0",
             "start_date=20240315",
             "end_date=20240315",
             "ivl=60000",
             "use_csv=false",
-            "pretty_time=false"
+            "pretty_time=false",
         ]
-        
+
         for param in expected_params:
             if param in url:
                 print(f"✓ Found parameter: {param}")
             else:
                 print(f"✗ Missing parameter: {param}")
                 return False
-                
+
         return True
 
 
