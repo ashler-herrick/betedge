@@ -8,9 +8,6 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
 # Install prerequisites including supervisor and dependencies
 RUN apt-get update && apt-get install -y \
       supervisor \
-      gcc \
-      libc6-dev \
-      librdkafka-dev \
       software-properties-common \
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update \

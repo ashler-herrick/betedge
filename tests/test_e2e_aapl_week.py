@@ -2,7 +2,7 @@
 """
 End-to-end test for AAPL options data retrieval.
 
-Tests the complete flow: API request → date splitting → Kafka publishing
+Tests the complete flow: API request → date splitting → MinIO publishing
 
 This script:
 1. Calculates a business week date range (5 trading days)
@@ -23,7 +23,7 @@ from typing import Dict, List, Tuple
 
 import requests
 
-from betedge_data.manager.models import generate_topic_name, generate_date_list
+from betedge_data.manager.models import generate_date_list
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -149,7 +149,7 @@ def validate_response(response_data: Dict, expected_dates: List[str]) -> bool:
         return False
     
     # Check required fields
-    required_fields = ["status", "request_id", "message", "kafka_topic", "processing_time_ms"]
+    required_fields = ["status", "request_id", "message", "processing_time_ms"]
     for field in required_fields:
         if field not in response_data:
             print(f"✗ Missing required field: {field}")
@@ -164,15 +164,12 @@ def validate_response(response_data: Dict, expected_dates: List[str]) -> bool:
     print(f"✓ Request ID: {response_data['request_id']}")
     print(f"✓ Processing time: {response_data['processing_time_ms']}ms")
     
-    # Validate topic name
-    expected_topic = generate_topic_name(TEST_SYMBOL, TEST_INTERVAL)
-    actual_topic = response_data.get("kafka_topic")
-    
-    if actual_topic == expected_topic:
-        print(f"✓ Kafka topic: {actual_topic}")
+    # Validate storage location
+    storage_location = response_data.get("storage_location")
+    if storage_location and "historical-options" in storage_location:
+        print(f"✓ Storage location: {storage_location}")
     else:
-        print(f"✗ Topic mismatch - Expected: {expected_topic}, Got: {actual_topic}")
-        return False
+        print(f"? Storage location unclear: {storage_location}")
     
     # Check message content for date processing
     message = response_data.get("message", "")
@@ -186,7 +183,7 @@ def validate_response(response_data: Dict, expected_dates: List[str]) -> bool:
     # Check data size
     records_count = response_data.get("records_count", 0)
     if records_count > 0:
-        print(f"✓ Data size: {records_count:,} bytes published to Kafka")
+        print(f"✓ Data size: {records_count:,} bytes uploaded to storage")
     else:
         print(f"? No data published (records_count: {records_count})")
     
@@ -210,7 +207,7 @@ def display_test_summary(
     print(f"  Date range: {start_date} to {end_date}")
     print(f"  Expected business days: {len(expected_dates)}")
     print(f"  Business days: {', '.join(expected_dates)}")
-    print(f"  Expected topic: {generate_topic_name(TEST_SYMBOL, TEST_INTERVAL)}")
+    print(f"  Storage: S3-compatible object storage (MinIO)")
     print()
     
     print("Test Results:")
@@ -223,13 +220,13 @@ def display_test_summary(
     if success:
         print("✅ End-to-end flow verified successfully!")
         print("✅ Date splitting is working correctly")
-        print("✅ Kafka topic generation is correct")
+        print("✅ MinIO object storage upload is working")
         print("✅ API processing completed without errors")
     else:
         print("❌ End-to-end test failed")
         print("🔍 Check API logs and ensure:")
         print("   - ThetaTerminal is running and authenticated")
-        print("   - Kafka is running on localhost:9092")
+        print("   - MinIO is running on localhost:9000")
         print("   - API server is running on localhost:8000")
 
 

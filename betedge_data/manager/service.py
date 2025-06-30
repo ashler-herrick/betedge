@@ -14,12 +14,11 @@ from uuid import UUID
 
 from betedge_data.historical.option.client import HistoricalOptionClient
 from betedge_data.historical.option.models import HistoricalOptionRequest as ClientHistoricalOptionRequest
-from betedge_data.kafka import KafkaConfig, KafkaPublisher, KafkaPublishConfig
+from betedge_data.storage import MinIOConfig, MinIOPublisher, MinIOPublishConfig
 from betedge_data.manager.models import (
     DataProcessingResponse,
     ErrorResponse,
     HistoricalOptionRequest,
-    generate_topic_name,
     generate_date_list,
 )
 
@@ -27,15 +26,30 @@ logger = logging.getLogger(__name__)
 
 
 class DataProcessingService:
-    """Service for processing historical option data requests and publishing to Kafka."""
+    """Service for processing historical option data requests and publishing to MinIO object storage."""
     
     def __init__(
-        self
+        self,
+        force_refresh: bool = False,
+        minio_config: Optional[MinIOConfig] = None
     ):
         """
         Initialize the data processing service.
+        
+        Args:
+            force_refresh: If True, reprocess existing files (overwrite)
+            minio_config: MinIO configuration, uses default if None
         """
-        self.kafka_publisher = KafkaPublisher(KafkaConfig())
+        self.force_refresh = force_refresh
+        
+        # Initialize MinIO publisher
+        try:
+            self.minio_publisher = MinIOPublisher(minio_config or MinIOConfig())
+            logger.info(f"MinIOPublisher initialized (force_refresh={force_refresh})")
+        except Exception as e:
+            logger.error(f"Failed to initialize MinIO publisher: {e}")
+            raise RuntimeError(f"MinIO initialization failed: {e}") from e
+        
         logger.info("DataProcessingService initialized")
     
     async def process_historical_option_request(
@@ -60,9 +74,6 @@ class DataProcessingService:
         logger.info(f"Processing historical option request {request_id} for {request.root}")
         
         try:
-            # Generate topic name based on root and interval
-            topic = generate_topic_name(request.root, request.interval)
-            
             # Generate list of dates to process
             dates = generate_date_list(request.start_date, request.end_date)
             logger.info(f"Processing {len(dates)} days from {request.start_date} to {request.end_date}")
@@ -72,32 +83,43 @@ class DataProcessingService:
             
             # Process with HistoricalOptionClient
             with HistoricalOptionClient() as client:
-                # Phase 1: Fetch all days in parallel
-                fetch_start = time.time()
-                logger.info(f"Starting parallel fetch of {len(dates)} days for {request.root}")
+                # Phase 1: Filter out already published dates (unless force refresh)
+                dates_to_fetch = self._filter_unpublished_dates(dates, request)
                 
-                day_results = await self._parallel_fetch_days(dates, request, client)
+                if len(dates_to_fetch) == 0:
+                    logger.info(f"All {len(dates)} days already exist for {request.root} (use force_refresh=True to reprocess)")
+                    storage_location = f"s3://{self.minio_publisher.bucket}/historical-options/quote/{request.root}/"
+                    return DataProcessingResponse(
+                        status="success",
+                        request_id=request_id,
+                        message=f"All {len(dates)} days already exist for {request.root}",
+                        data_type="parquet",
+                        storage_location=storage_location,
+                        records_count=0,
+                        processing_time_ms=int((time.time() - start_time) * 1000)
+                    )
+                
+                # Phase 2: Fetch unpublished days in parallel
+                fetch_start = time.time()
+                logger.info(f"Starting parallel fetch of {len(dates_to_fetch)}/{len(dates)} days for {request.root}")
+                
+                day_results = await self._parallel_fetch_days(dates_to_fetch, request, client)
                 
                 fetch_time = time.time() - fetch_start
-                logger.info(f"Parallel fetch completed in {fetch_time:.2f}s - fetched {len(day_results)}/{len(dates)} days")
+                logger.info(f"Parallel fetch completed in {fetch_time:.2f}s - fetched {len(day_results)}/{len(dates_to_fetch)} days")
                 
-                # Phase 2: Publish in chronological order to maintain time series
-                publish_start = time.time()
-                for date in dates:
-                    if date in day_results:
-                        parquet_bytes, data_size = day_results[date]
-                        published_size = await self._publish_day_result(
-                            parquet_bytes, data_size, date, topic, request_id, request
-                        )
-                        
-                        if published_size > 0:
-                            total_bytes_published += published_size
-                            days_processed += 1
-                    else:
-                        logger.warning(f"No data available for {request.root} on {date} - skipping")
+                # Phase 3: Upload to MinIO (can be done in parallel since no ordering constraints)
+                upload_start = time.time()
+                upload_results = await self._parallel_upload_days(day_results, request, request_id)
                 
-                publish_time = time.time() - publish_start
-                logger.info(f"Sequential publish completed in {publish_time:.2f}s - published {days_processed} days")
+                # Count successful uploads
+                for date, upload_size in upload_results.items():
+                    if upload_size > 0:
+                        total_bytes_published += upload_size
+                        days_processed += 1
+                
+                upload_time = time.time() - upload_start
+                logger.info(f"Parallel upload completed in {upload_time:.2f}s - uploaded {days_processed} days")
             
             processing_time = int((time.time() - start_time) * 1000)
             
@@ -110,12 +132,15 @@ class DataProcessingService:
                     processing_time_ms=processing_time
                 )
             
+            # Generate storage location info
+            storage_location = f"s3://{self.minio_publisher.bucket}/historical-options/quote/{request.root}/"
+            
             return DataProcessingResponse(
                 status="success",
                 request_id=request_id,
                 message=f"Successfully processed {days_processed}/{len(dates)} days of option data for {request.root}",
                 data_type="parquet",
-                kafka_topic=topic,
+                storage_location=storage_location,
                 records_count=total_bytes_published,  # Total bytes across all days
                 processing_time_ms=processing_time
             )
@@ -131,6 +156,43 @@ class DataProcessingService:
                 message=f"Failed to process historical option request: {str(e)}",
                 processing_time_ms=processing_time
             )
+    
+    def _filter_unpublished_dates(
+        self,
+        dates: list[str],
+        request: HistoricalOptionRequest
+    ) -> list[str]:
+        """
+        Filter out dates that already have files in MinIO (unless force refresh).
+        
+        Args:
+            dates: List of dates to check
+            request: Historical option request
+            
+        Returns:
+            List of dates that need to be fetched
+        """
+        # If force refresh, return all dates to reprocess
+        if self.force_refresh:
+            logger.info(f"Force refresh enabled - will reprocess all {len(dates)} dates")
+            return dates
+        
+        # Check MinIO for existing files
+        existing_dates = self.minio_publisher.list_existing_files(
+            root=request.root,
+            dates=dates,
+            interval=request.interval,
+            exp=str(request.exp),
+            schema="quote",  # Default to quote schema
+            filter_type="filtered"
+        )
+        
+        unpublished_dates = [date for date in dates if date not in existing_dates]
+        
+        if existing_dates:
+            logger.info(f"Skipping {len(existing_dates)} existing files for {request.root}: {sorted(existing_dates)}")
+        
+        return unpublished_dates
     
     def _fetch_single_day(
         self,
@@ -221,61 +283,104 @@ class DataProcessingService:
                     
         return results
 
-    async def _publish_day_result(
+    async def _parallel_upload_days(
+        self,
+        day_results: Dict[str, Tuple[bytes, int]],
+        request: HistoricalOptionRequest,
+        request_id: UUID
+    ) -> Dict[str, int]:
+        """
+        Upload all day results to MinIO in parallel.
+        
+        Args:
+            day_results: Dict mapping date to (parquet_bytes, data_size)
+            request: Historical option request
+            request_id: Request UUID
+            
+        Returns:
+            Dict mapping date to uploaded bytes (0 on failure)
+        """
+        upload_results = {}
+        
+        # Use ThreadPoolExecutor for parallel uploads
+        with ThreadPoolExecutor(max_workers=min(10, len(day_results))) as executor:
+            # Submit all upload tasks
+            future_to_date = {}
+            for date, (parquet_bytes, data_size) in day_results.items():
+                future = executor.submit(
+                    self._upload_single_day, parquet_bytes, date, request, request_id
+                )
+                future_to_date[future] = date
+            
+            # Collect results as they complete
+            for future in future_to_date:
+                date = future_to_date[future]
+                try:
+                    upload_size = future.result()
+                    upload_results[date] = upload_size
+                    if upload_size > 0:
+                        logger.info(f"Uploaded {upload_size} bytes for {request.root} on {date}")
+                except Exception as e:
+                    logger.error(f"Parallel upload failed for {request.root} on {date}: {str(e)}")
+                    upload_results[date] = 0
+        
+        return upload_results
+
+    def _upload_single_day(
         self,
         parquet_bytes: bytes,
-        data_size: int,
         date: str,
-        topic: str,
-        request_id: UUID,
-        request: HistoricalOptionRequest
+        request: HistoricalOptionRequest,
+        request_id: UUID
     ) -> int:
         """
-        Publish single day's result to Kafka.
+        Upload single day's result to MinIO.
         
         Args:
             parquet_bytes: Parquet data as bytes
-            data_size: Size of the data
             date: Date string
-            topic: Kafka topic name
-            request_id: Request UUID
             request: Original request
+            request_id: Request UUID
             
         Returns:
-            Bytes published (0 on failure)
+            Bytes uploaded (0 on failure)
         """
         try:
-            # Convert bytes back to BytesIO for publishing
+            # Convert bytes to BytesIO for uploading
             import io
             parquet_buffer = io.BytesIO(parquet_bytes)
             
-            # Set up Kafka publishing config for this day
-            publish_config = KafkaPublishConfig(
-                topic=topic,
-                key=f"{request.root}_{date}",  # Use root_date as key for ordering
-                headers={
-                    "request_id": str(request_id),
-                    "data_type": "parquet",
-                    "root": request.root,
-                    "date": date,
-                    "interval": str(request.interval)
-                }
+            # Set up MinIO publishing config for this day
+            publish_config = MinIOPublishConfig(
+                schema="quote",  # Default to quote schema
+                root=request.root,
+                date=date,
+                interval=request.interval,
+                exp=str(request.exp),
+                filter_type="filtered"
             )
             
-            # Publish Parquet data to Kafka
-            published_size = await self.kafka_publisher.publish_parquet_data(
-                parquet_buffer, publish_config
-            )
+            # Upload Parquet data to MinIO (this is synchronous but called from ThreadPoolExecutor)
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                upload_size = loop.run_until_complete(
+                    self.minio_publisher.publish_parquet_data(parquet_buffer, publish_config)
+                )
+            finally:
+                loop.close()
             
-            if published_size > 0:
-                logger.info(f"Successfully processed {request.root} on {date}: published {published_size} bytes to topic {topic}")
+            if upload_size > 0:
+                object_path = publish_config.generate_object_path()
+                logger.info(f"Successfully uploaded {request.root} on {date}: {upload_size} bytes to {object_path}")
             
-            return published_size
+            return upload_size
             
         except Exception as e:
-            logger.error(f"Failed to publish {request.root} for date {date}: {str(e)}")
+            logger.error(f"Failed to upload {request.root} for date {date}: {str(e)}")
             return 0
-    
+
     def create_error_response(
         self, 
         request_id: UUID,
@@ -304,7 +409,7 @@ class DataProcessingService:
     
     async def close(self) -> None:
         """Close service connections and clean up resources."""
-        await self.kafka_publisher.close()
+        await self.minio_publisher.close()
         logger.info("DataProcessingService closed")
     
     async def __aenter__(self):

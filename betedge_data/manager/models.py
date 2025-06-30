@@ -112,9 +112,9 @@ class DataProcessingResponse(BaseModel):
         None,
         description="Type of data processed"
     )
-    kafka_topic: Optional[str] = Field(
+    storage_location: Optional[str] = Field(
         None,
-        description="Kafka topic where data was published"
+        description="Storage location where data was published (S3 bucket/prefix or Kafka topic)"
     )
     records_count: Optional[int] = Field(
         None,
@@ -158,62 +158,7 @@ class ErrorResponse(BaseModel):
     )
     
     
-class KafkaPublishConfig(BaseModel):
-    """Configuration for Kafka publishing."""
-    
-    topic: str = Field(
-        ...,
-        description="Kafka topic name"
-    )
-    key: Optional[str] = Field(
-        None,
-        description="Kafka message key"
-    )
-    headers: Optional[dict] = Field(
-        None,
-        description="Kafka message headers"
-    )
-
-
-# Utility functions for topic naming and date generation
-def interval_to_string(interval_ms: int) -> str:
-    """
-    Convert interval in milliseconds to human-readable format.
-    
-    Args:
-        interval_ms: Interval in milliseconds
-        
-    Returns:
-        Human-readable interval string (e.g., "15m", "1h", "1d")
-    """
-    if interval_ms == 0:
-        return "tick"
-    elif interval_ms < 60000:  # Less than 1 minute
-        return f"{interval_ms // 1000}s"
-    elif interval_ms < 3600000:  # Less than 1 hour
-        minutes = interval_ms // 60000
-        return f"{minutes}m"
-    elif interval_ms < 86400000:  # Less than 1 day
-        hours = interval_ms // 3600000
-        return f"{hours}h"
-    else:
-        days = interval_ms // 86400000
-        return f"{days}d"
-
-
-def generate_topic_name(root: str, interval_ms: int) -> str:
-    """
-    Generate Kafka topic name for historical options.
-    
-    Args:
-        root: Option root symbol (e.g., "AAPL")
-        interval_ms: Interval in milliseconds
-        
-    Returns:
-        Kafka topic name (e.g., "historical-option-aapl-quote-15m")
-    """
-    interval_str = interval_to_string(interval_ms)
-    return f"historical-option-{root.lower()}-quote-{interval_str}"
+# Utility function for date generation
 
 
 def generate_date_list(start_date: str, end_date: str) -> List[str]:

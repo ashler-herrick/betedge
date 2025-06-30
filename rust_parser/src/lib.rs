@@ -185,7 +185,7 @@ fn serialize_batch_to_parquet(batch: &RecordBatch) -> PyResult<Vec<u8>> {
         let cursor = Cursor::new(&mut buffer);
         
         let props = WriterProperties::builder()
-            .set_compression(Compression::UNCOMPRESSED)
+            .set_compression(Compression::SNAPPY)
             .build();
         
         let mut writer = ArrowWriter::try_new(cursor, batch.schema(), Some(props))

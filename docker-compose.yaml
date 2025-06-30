@@ -1,50 +1,40 @@
 services:
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.5.0
-    container_name: betedge-zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: betedge-minio
     ports:
-      - "2181:2181"
+      - "9000:9000"  # S3 API
+      - "9001:9001"  # Web UI
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
     volumes:
-      - zookeeper-data:/var/lib/zookeeper/data
-      - zookeeper-logs:/var/lib/zookeeper/log
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
     networks:
       - betedge-network
 
-  kafka:
-    image: confluentinc/cp-kafka:7.5.0
-    container_name: betedge-kafka
+  mc:
+    image: minio/mc:latest
+    container_name: betedge-mc
     depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-      - "29092:29092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_MS: -1  # Unlimited time-based retention
-      KAFKA_LOG_RETENTION_BYTES: 107374182400  # 100GB per topic safety limit
-      KAFKA_LOG_CLEANUP_POLICY: delete  # Use delete policy for retention
-      KAFKA_LOG_SEGMENT_BYTES: 1073741824  # 1GB
-      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
-    volumes:
-      - kafka-data:/var/lib/kafka/data
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set minio http://minio:9000 minioadmin minioadmin123;
+      mc mb minio/betedge-data --ignore-existing;
+      mc policy set public minio/betedge-data;
+      echo 'MinIO setup complete - bucket: betedge-data';
+      exit 0;
+      "
     networks:
       - betedge-network
-    healthcheck:
-      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
 
   application:
     build:
@@ -52,10 +42,20 @@ services:
       dockerfile: Dockerfile
     container_name: betedge-data
     depends_on:
-      kafka:
+      minio:
         condition: service_healthy
     ports:
       - "8000:8000"
+    environment:
+      # MinIO Configuration
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET: betedge-data
+      MINIO_SECURE: "false"
+      MINIO_REGION: us-east-1
+      # Application Configuration
+      FORCE_REFRESH: "false"
     env_file:
       - .env
     volumes:
@@ -75,7 +75,5 @@ networks:
     driver: bridge
 
 volumes:
-  zookeeper-data:
-  zookeeper-logs:
-  kafka-data:
+  minio-data:
   theta-data:
