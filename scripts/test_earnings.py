@@ -14,31 +14,9 @@ headers = {
 }
 
 
-def __get_calendar_query(url: str, date: datetime = None, date_is_month: bool = False, paramsin=None):
-    if paramsin is None:
-        if date is None:
-            if date_is_month:
-                datestr = datetime.today().strftime("%Y-%m")
-            else:
-                datestr = datetime.today().strftime("%Y-%m-%d")
-        else:
-            if date_is_month:
-                datestr = date.strftime("%Y-%m")
-            else:
-                datestr = date.strftime("%Y-%m-%d")
-
-        params = {"date": datestr}
-    else:
-        params = paramsin
-
-    response = requests.get(url, headers=headers, params=params)
-    data = response.json()["data"]
-    return data
-
-
 def main():
     url = "https://api.nasdaq.com/api/calendar/earnings"
-    response = requests.get(url, headers=headers, params={"date": "2025-06-27"})
+    response = requests.get(url, headers=headers, params={"date": "2025-07-01"})
     rj = response.json()
     rjd = rj["data"]
     rjdr = rjd["rows"]

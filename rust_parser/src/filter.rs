@@ -49,15 +49,13 @@ pub fn filter_dte_arrow(
     current_date: NaiveDate,
     max_dte: i64,
 ) -> BooleanArray {
-    let current_ordinal = current_date.ordinal() as i64;
     let mut builder = BooleanBuilder::with_capacity(expiration_array.len());
     
     for i in 0..expiration_array.len() {
         let expiration = expiration_array.value(i);
         
         if let Some(exp_date) = parse_yyyymmdd_branchless(expiration) {
-            let exp_ordinal = exp_date.ordinal() as i64;
-            let dte = exp_ordinal - current_ordinal;
+            let dte = (exp_date - current_date).num_days();
             builder.append_value(dte > 0 && dte <= max_dte);
         } else {
             builder.append_value(false);
@@ -73,15 +71,13 @@ pub fn compute_dynamic_thresholds(
     current_date: NaiveDate,
     base_pct: f64,
 ) -> Float32Array {
-    let current_ordinal = current_date.ordinal() as i64;
     let mut builder = arrow::array::Float32Builder::with_capacity(expiration_array.len());
     
     for i in 0..expiration_array.len() {
         let expiration = expiration_array.value(i);
         
         if let Some(exp_date) = parse_yyyymmdd_branchless(expiration) {
-            let exp_ordinal = exp_date.ordinal() as i64;
-            let dte = exp_ordinal - current_ordinal;
+            let dte = (exp_date - current_date).num_days();
             
             if dte > 0 {
                 let threshold = base_pct as f32 * fast_sqrt(dte);

@@ -21,3 +21,11 @@ class HistoricalClientConfig(BaseSettings):
     max_concurrent_requests: int = Field(
         default=4, description="Maximum concurrent HTTP requests (sync with ThetaData HTTP_CONCURRENCY)"
     )
+
+    model_config = {
+        "env_prefix": "THETA_",
+        "case_sensitive": False,
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }

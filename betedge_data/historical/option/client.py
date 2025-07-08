@@ -1,29 +1,24 @@
 import io
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from decimal import Decimal
-from typing import Dict, Any, Iterator
 from urllib.parse import urlencode
 
-import httpx
-import ijson
-import orjson
-import fast_parser
+import pyarrow as pa
+import pyarrow.parquet as pq
+import pyarrow.ipc as ipc
 
+from betedge_data.common.http import get_http_client
+from betedge_data.common.models import OptionThetaDataResponse, StockThetaDataResponse, TICK_SCHEMAS, CONTRACT_SCHEMA
 from betedge_data.historical.config import HistoricalClientConfig
-from betedge_data.historical.option.models import HistoricalOptionRequest
+from betedge_data.historical.option.models import HistOptionBulkRequest
+from betedge_data.historical.stock.client import HistoricalStockClient
+from betedge_data.historical.stock.models import HistStockRequest
+from betedge_data.common.interface import IClient
 
 logger = logging.getLogger(__name__)
 
 
-def _decimal_default(obj):
-    """Default function for orjson to handle Decimal objects."""
-    if isinstance(obj, Decimal):
-        return float(obj)
-    raise TypeError
-
-
-class HistoricalOptionClient:
+class HistoricalOptionClient(IClient):
     """Client for fetching and filtering historical option data from ThetaData API."""
 
     def __init__(self):
@@ -35,12 +30,8 @@ class HistoricalOptionClient:
         """
         self.config = HistoricalClientConfig()
         self.max_workers = self.config.max_concurrent_requests
-        self.client = httpx.Client(
-            timeout=self.config.timeout,
-            limits=httpx.Limits(max_connections=100, max_keepalive_connections=50),
-            transport=httpx.HTTPTransport(retries=0),
-            http2=True,
-        )
+        self.http_client = get_http_client()
+        self.stock_client = HistoricalStockClient()
 
     def __enter__(self):
         """Context manager entry."""
@@ -48,374 +39,333 @@ class HistoricalOptionClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit with cleanup."""
-        if hasattr(self, "client"):
-            self.client.close()
+        if hasattr(self, "stock_client"):
+            self.stock_client.close()
 
-    def get_filtered_bulk_quote_as_parquet(self, request: HistoricalOptionRequest) -> io.BytesIO:
+    def get_data(self, request: HistOptionBulkRequest) -> io.BytesIO:
         """
-        Get filtered option data as Parquet bytes for streaming.
-
-        Uses time-matched underlying prices from historical stock data for accurate
-        moneyness filtering.
+        Get option data as Parquet or IPC bytes for streaming.
 
         Args:
-            request: HistoricalOptionRequest with all parameters and validation
+            request: HistOptionBulkRequest with all parameters and validation
 
         Returns:
-            BytesIO containing filtered Parquet data ready for streaming
+            BytesIO containing Parquet or IPC data ready for streaming
         """
-        logger.info(f"Starting parquet data fetch for {request.root} from {request.start_date} to {request.end_date}")
-
-        # Validate return format
-        if request.return_format != "parquet":
-            raise ValueError(f"Expected return_format='parquet', got '{request.return_format}'")
+        logger.info(f"Starting data fetch for {request.root} for {request.date}")
 
         # Fetch option and stock data
-        logger.debug(f"Fetching option and stock data for {request.root}")
-        option_json, stock_json = self._fetch_option_and_stock_data(request)
+        logger.info(f"Fetching option and stock data for {request.root}")
+        option_data, stock_data = self._fetch_option_and_stock_data_models(request)
         logger.debug(
-            f"Data fetch complete - option JSON length: {len(option_json)}, stock JSON length: {len(stock_json)}"
+            f"Data fetch complete - option records: {len(option_data.response)}, stock records: {len(stock_data.response)}"
         )
 
-        # Apply Rust filtering with both option and stock data
-        current_yyyymmdd = int(request.start_date)  # Use start_date for DTE calculation
-
         try:
-            logger.debug(
-                f"Starting Rust filtering with params: current_date={current_yyyymmdd}, max_dte={request.max_dte}, base_pct={request.base_pct}"
-            )
-            # Pass both option and stock JSON to Rust parser
-            parquet_bytes = fast_parser.filter_contracts_to_parquet_bytes(
-                option_json, stock_json, current_yyyymmdd, request.max_dte, request.base_pct
-            )
-
-            if isinstance(parquet_bytes, list):
-                parquet_bytes = bytes(parquet_bytes)
-
-            # Wrap in BytesIO for streaming
-            parquet_buffer = io.BytesIO(parquet_bytes)
-
-            logger.info(f"Filtering complete: {len(parquet_bytes)} bytes Parquet data generated")
-            return parquet_buffer
+            # Convert to requested format
+            if request.return_format == "parquet":
+                logger.debug(f"Converting option data to Parquet for {request.root}")
+                buffer = self._convert_to_parquet(option_data, stock_data, endpoint=request.endpoint)
+                logger.info(f"Parquet conversion complete: {len(buffer.getvalue())} bytes generated")
+                return buffer
+            elif request.return_format == "ipc":
+                logger.debug(f"Converting option data to IPC for {request.root}")
+                buffer = self._convert_to_ipc(option_data, stock_data, endpoint=request.endpoint)
+                logger.info(f"IPC conversion complete: {len(buffer.getvalue())} bytes generated")
+                return buffer
+            else:
+                raise ValueError(f"Unsupported return_format: {request.return_format}")
 
         except Exception as e:
-            logger.error(f"Rust filtering failed for {request.root}: {str(e)}")
-            logger.debug(f"Rust filtering error details for {request.root}", exc_info=True)
-            raise RuntimeError(f"Option filtering failed: {e}") from e
+            logger.error(f"Data conversion failed for {request.root}: {str(e)}", exc_info=True)
+            raise RuntimeError(f"Option data conversion failed: {e}") from e
 
-    def get_filtered_bulk_quote_as_ipc(self, request: HistoricalOptionRequest) -> io.BytesIO:
+    def _fetch_option_and_stock_data_models(
+        self, request: HistOptionBulkRequest
+    ) -> tuple[OptionThetaDataResponse, StockThetaDataResponse]:
         """
-        Get filtered option data as Arrow IPC bytes for streaming.
-
-        Uses time-matched underlying prices from historical stock data for accurate
-        moneyness filtering.
-
-        Args:
-            request: HistoricalOptionRequest with all parameters and validation
-
-        Returns:
-            BytesIO containing filtered Arrow IPC data ready for streaming
-        """
-        # Validate return format
-        if request.return_format != "ipc":
-            raise ValueError(f"Expected return_format='ipc', got '{request.return_format}'")
-
-        # Fetch option and stock data
-        option_json, stock_json = self._fetch_option_and_stock_data(request)
-
-        # Apply Rust filtering with both option and stock data
-        current_yyyymmdd = int(request.start_date)  # Use start_date for DTE calculation
-
-        try:
-            # Pass both option and stock JSON to Rust parser
-            ipc_bytes = fast_parser.filter_contracts_to_ipc_bytes(
-                option_json, stock_json, current_yyyymmdd, request.max_dte, request.base_pct
-            )
-
-            if isinstance(ipc_bytes, list):
-                ipc_bytes = bytes(ipc_bytes)
-
-            # Wrap in BytesIO for streaming
-            ipc_buffer = io.BytesIO(ipc_bytes)
-
-            logger.info(f"Filtering complete: {len(ipc_bytes)} bytes Arrow IPC data generated")
-            return ipc_buffer
-
-        except Exception as e:
-            logger.error(f"Rust filtering failed: {e}")
-            raise RuntimeError(f"Option filtering failed: {e}") from e
-
-    def _fetch_option_and_stock_data(self, request: HistoricalOptionRequest) -> tuple[str, str]:
-        """
-        Fetch option and stock data in parallel and return as JSON strings.
+        Fetch option and stock data in parallel and return as validated models.
 
         Args:
             request: HistoricalOptionRequest with all parameters
 
         Returns:
-            Tuple of (option_json, stock_json)
+            Tuple of (option_data, stock_data)
         """
-        logger.info(
-            f"Fetching option and stock data for {request.root} exp={request.exp} "
-            f"({request.start_date} to {request.end_date})"
+        logger.info(f"Fetching option and stock data for {request.root} exp={request.exp} date={request.date}")
+
+        # Create stock request from option request
+        stock_request = HistStockRequest(
+            root=request.root, date=request.date, interval=request.interval, endpoint=request.endpoint
         )
 
         # Fetch stock and option data in parallel
         with ThreadPoolExecutor(max_workers=2) as executor:
             # Submit both tasks
-            stock_future = executor.submit(self._fetch_stock_json, request)
-            option_future = executor.submit(self._fetch_option_bulk_quote, request)
+            stock_future = executor.submit(self.stock_client._fetch_stock_data, stock_request)
+            option_future = executor.submit(self._fetch_option_data, request)
 
             # Collect results
             try:
-                stock_json = stock_future.result()
-                logger.info(f"Successfully fetched stock data for {request.root}: {len(stock_json)} characters")
+                stock_data = stock_future.result()
+                logger.info(f"Successfully fetched stock data for {request.root}: {len(stock_data.response)} records")
             except Exception as e:
-                logger.error(f"Failed to fetch stock data for {request.root}: {str(e)}")
-                logger.debug(f"Stock data fetch error details for {request.root}", exc_info=True)
+                logger.error(f"Failed to fetch stock data for {request.root}: {str(e)}", exc_info=True)
                 raise RuntimeError(f"Stock data fetch failed: {e}") from e
 
             try:
-                option_json = option_future.result()
+                option_data = option_future.result()
                 logger.info(
-                    f"Successfully fetched option data for {request.root} exp {request.exp}: {len(option_json)} characters"
+                    f"Successfully fetched option data for {request.root} exp {request.exp}: {len(option_data.response)} records"
                 )
             except Exception as e:
-                logger.error(f"Failed to fetch option data for {request.root} exp {request.exp}: {str(e)}")
-                logger.debug(f"Option data fetch error details for {request.root} exp {request.exp}", exc_info=True)
+                logger.error(
+                    f"Failed to fetch option data for {request.root} exp {request.exp}: {str(e)}", exc_info=True
+                )
                 raise RuntimeError(f"Option data fetch failed: {e}") from e
-        return option_json, stock_json
 
-    def _fetch_option_bulk_quote(self, request: HistoricalOptionRequest) -> str:
+        return option_data, stock_data
+
+    def _flatten_option_data(
+        self, option_data: OptionThetaDataResponse, stock_data: StockThetaDataResponse, endpoint: str = "quote"
+    ) -> dict:
         """
-        Fetch option data and return as JSON string.
+        Flatten option and stock data into flat tick records with contract info.
+
+        Args:
+            option_data: OptionThetaDataResponse containing option data
+            stock_data: StockThetaDataResponse containing stock data
+            endpoint: Endpoint type ("quote" or "ohlc") to determine schema
+
+        Returns:
+            Dict with lists of flattened tick data
+        """
+        logger.debug(
+            f"Flattening {len(option_data.response)} option contracts and {len(stock_data.response)} stock records using {endpoint} schema"
+        )
+
+        # Get schema configuration for the endpoint
+        schema = TICK_SCHEMAS[endpoint]
+        field_count = schema["field_count"]
+        field_names = schema["field_names"]
+
+        # Extract all option ticks and contract info using batch operations
+        all_option_ticks = []
+        contract_info = []
+        for option_item in option_data.response:
+            ticks = option_item.ticks
+            contract = option_item.contract
+            all_option_ticks.extend(ticks)
+            # Repeat contract info for each tick
+            contract_info.extend([contract] * len(ticks))
+
+        # Apply columnar transposition (similar to stock client approach)
+        if all_option_ticks:
+            option_columns = list(zip(*all_option_ticks))
+        else:
+            option_columns = [[] for _ in range(field_count)]
+
+        if stock_data.response:
+            stock_columns = list(zip(*stock_data.response))
+        else:
+            stock_columns = [[] for _ in range(field_count)]
+
+        # Combine option and stock columns efficiently
+        combined_columns = []
+        for i in range(field_count):
+            combined_columns.append(list(option_columns[i]) + list(stock_columns[i]))
+
+        root = contract_info[0].root
+        # Create contract info columns with list comprehensions
+        root_column = [root] * len(contract_info) + [root] * len(stock_data.response)
+        expiration_column = [contract.expiration for contract in contract_info] + [0] * len(stock_data.response)
+        strike_column = [contract.strike for contract in contract_info] + [0] * len(stock_data.response)
+        right_column = [contract.right for contract in contract_info] + ["U"] * len(stock_data.response)
+
+        # Create final data structure with batch type conversions using schema field names
+        flattened_data = {}
+        for i, field_name in enumerate(field_names):
+            # Apply appropriate type conversion based on field type
+            if field_name in ["ms_of_day", "date", "volume", "count"]:
+                flattened_data[field_name] = [int(x) for x in combined_columns[i]]
+            elif field_name in [
+                "bid_size",
+                "ask_size",
+                "bid_exchange",
+                "ask_exchange",
+                "bid_condition",
+                "ask_condition",
+            ]:
+                flattened_data[field_name] = [int(x) for x in combined_columns[i]]
+            else:  # float fields like bid_price, ask_price, open, high, low, close
+                flattened_data[field_name] = [float(x) for x in combined_columns[i]]
+
+        # Add contract fields
+        flattened_data["root"] = root_column
+        flattened_data["expiration"] = expiration_column
+        flattened_data["strike"] = strike_column
+        flattened_data["right"] = right_column
+
+        logger.debug(f"Flattened to {len(flattened_data['ms_of_day'])} total tick records")
+        return flattened_data
+
+    def _create_arrow_table(self, flattened_data: dict, schema_type: str = "quote") -> pa.Table:
+        """
+        Create PyArrow table from flattened option/stock data using schema configuration.
+
+        Args:
+            flattened_data: Dict with lists of flattened tick data
+            schema_type: Schema type ("quote" or "ohlc") to determine field structure
+
+        Returns:
+            PyArrow Table ready for serialization
+
+        Raises:
+            RuntimeError: If no data is provided
+        """
+        if not flattened_data or not any(flattened_data.values()):
+            logger.error("No data found in flattened data")
+            raise RuntimeError("No data to convert")
+
+        # Get schema configurations
+        tick_schema = TICK_SCHEMAS[schema_type]
+        contract_schema = CONTRACT_SCHEMA
+
+        # Combine tick and contract field definitions
+        all_field_names = tick_schema["field_names"] + contract_schema["field_names"]
+        all_arrow_types = tick_schema["arrow_types"] + contract_schema["arrow_types"]
+
+        # Create Arrow arrays with proper types
+        arrays = []
+        for field_name, arrow_type in zip(all_field_names, all_arrow_types):
+            if field_name in flattened_data:
+                arrays.append(pa.array(flattened_data[field_name], type=arrow_type))
+            else:
+                # Handle missing fields gracefully
+                logger.warning(f"Field {field_name} not found in flattened data")
+                arrays.append(pa.array([], type=arrow_type))
+
+        # Create table
+        table = pa.Table.from_arrays(arrays, names=all_field_names)
+        total_records = len(flattened_data.get("ms_of_day", []))
+        logger.debug(f"Created Arrow table with {total_records} records using {schema_type} schema")
+        return table
+
+    def _convert_to_parquet(
+        self, option_data: OptionThetaDataResponse, stock_data: StockThetaDataResponse, endpoint: str = "quote"
+    ) -> io.BytesIO:
+        """
+        Convert option and stock data to Parquet format.
+
+        Args:
+            option_data: OptionThetaDataResponse containing option data
+            stock_data: StockThetaDataResponse containing stock data
+            endpoint: Endpoint type ("quote" or "ohlc") to determine schema
+
+        Returns:
+            BytesIO containing Parquet data
+        """
+        try:
+            logger.debug(f"Converting option and stock data to Parquet using {endpoint} schema")
+
+            # Flatten the data
+            flattened_data = self._flatten_option_data(option_data, stock_data, endpoint)
+
+            # Create Arrow table
+            table = self._create_arrow_table(flattened_data, schema_type=endpoint)
+
+            # Write to Parquet with Snappy compression
+            buffer = io.BytesIO()
+            pq.write_table(table, buffer, compression="snappy")
+            buffer.seek(0)
+
+            logger.info(f"Converted {len(flattened_data['ms_of_day'])} records to Parquet")
+            return buffer
+
+        except Exception as e:
+            logger.error(f"Failed to convert option data to Parquet: {str(e)}")
+            raise RuntimeError(f"Parquet conversion failed: {e}") from e
+
+    def _convert_to_ipc(
+        self, option_data: OptionThetaDataResponse, stock_data: StockThetaDataResponse, endpoint: str = "quote"
+    ) -> io.BytesIO:
+        """
+        Convert option and stock data to IPC format.
+
+        Args:
+            option_data: OptionThetaDataResponse containing option data
+            stock_data: StockThetaDataResponse containing stock data
+            endpoint: Endpoint type ("quote" or "ohlc") to determine schema
+
+        Returns:
+            BytesIO containing IPC data
+        """
+        try:
+            logger.debug(f"Converting option and stock data to IPC using {endpoint} schema")
+
+            # Flatten the data
+            flattened_data = self._flatten_option_data(option_data, stock_data, endpoint)
+
+            # Create Arrow table
+            table = self._create_arrow_table(flattened_data, schema_type=endpoint)
+
+            # Write to IPC format
+            buffer = io.BytesIO()
+            with ipc.new_file(buffer, table.schema) as writer:
+                writer.write_table(table)
+            buffer.seek(0)
+
+            logger.info(f"Converted {len(flattened_data['ms_of_day'])} records to IPC")
+            return buffer
+
+        except Exception as e:
+            logger.error(f"Failed to convert option data to IPC: {str(e)}")
+            raise RuntimeError(f"IPC conversion failed: {e}") from e
+
+    def _fetch_option_data(self, request: HistOptionBulkRequest) -> OptionThetaDataResponse:
+        """
+        Fetch option data and return as validated Pydantic model.
 
         Args:
             request: HistoricalOptionRequest with all parameters
 
         Returns:
-            JSON string containing all option data
+            OptionThetaDataResponse containing all option data
         """
         url = self._build_option_url(request)
-        logger.debug(f"Fetching option data for {request.root} exp {request.exp}")
+        logger.info(f"Fetching option data for {request.root} exp {request.exp}")
 
-        # Collect all records for this expiration
-        all_records = []
-        current_url = url
-        page_count = 0
+        try:
+            # Use PaginatedHTTPClient with streaming and model validation
+            result = self.http_client.fetch_paginated(
+                url=url,
+                response_model=OptionThetaDataResponse,
+                stream_response=True,
+                item_path="response.item",
+                collect_items=True,
+            )
 
-        while current_url:
-            page_count += 1
-            logger.debug(f"Fetching page {page_count} for exp {request.exp}")
+            logger.info(f"Collected {len(result.response)} records for exp {request.exp}")
 
-            try:
-                response = self.client.get(current_url)
-                response.raise_for_status()
+            # Return validated model directly
+            return result
 
-                # Stream and collect all records from this page
-                for item in self._stream_json_items(response):
-                    all_records.append(item)
+        except Exception as e:
+            logger.error(f"Error fetching option data for exp {request.exp}: {e}")
+            raise RuntimeError(f"Option data fetch failed: {e}") from e
 
-                # Handle pagination
-                header = self._get_json_header(response)
-                current_url = header.get("next_page")
-
-                if current_url and str(current_url).lower() not in ["null", "none", ""]:
-                    logger.debug(f"Next page available for exp {request.exp}")
-                else:
-                    current_url = None
-
-            except httpx.HTTPStatusError as e:
-                error_detail = e.response.text if hasattr(e.response, "text") else str(e)
-                logger.error(f"HTTP error for exp {request.exp}: {e.response.status_code}: {error_detail}")
-                raise e
-            except Exception as e:
-                logger.error(f"Error fetching exp {request.exp}: {e}")
-                raise e
-
-        logger.info(f"Collected {len(all_records)} records for exp {request.exp} across {page_count} pages")
-
-        # Convert to ThetaData-compatible JSON format
-        response_data = {
-            "header": {
-                "latency_ms": 0,
-                "format": [
-                    "ms_of_day",
-                    "bid_size",
-                    "bid_exchange",
-                    "bid",
-                    "bid_condition",
-                    "ask_size",
-                    "ask_exchange",
-                    "ask",
-                    "ask_condition",
-                    "date",
-                ],
-            },
-            "response": all_records,
-        }
-
-        return orjson.dumps(response_data, default=_decimal_default).decode("utf-8")
-
-    def _fetch_stock_json(self, request: HistoricalOptionRequest) -> str:
-        """
-        Fetch stock quote data and return as JSON string.
-
-        Args:
-            request: HistoricalOptionRequest with all parameters
-
-        Returns:
-            JSON string containing stock quote data
-        """
-        url = self._build_stock_url(request)
-        logger.debug(f"Fetching stock data for {request.root}")
-
-        # Collect all stock ticks
-        all_ticks = []
-        current_url = url
-        page_count = 0
-
-        while current_url:
-            page_count += 1
-            logger.debug(f"Fetching stock page {page_count}")
-
-            try:
-                response = self.client.get(current_url)
-                response.raise_for_status()
-
-                # Parse the response to get ticks
-                data = response.json()
-                if "response" in data and isinstance(data["response"], list):
-                    all_ticks.extend(data["response"])
-
-                # Handle pagination
-                header = data.get("header", {})
-                current_url = header.get("next_page")
-
-                if current_url and str(current_url).lower() not in ["null", "none", ""]:
-                    logger.debug("Next page available for stock data")
-                else:
-                    current_url = None
-
-            except httpx.HTTPStatusError as e:
-                error_detail = e.response.text if hasattr(e.response, "text") else str(e)
-                logger.error(f"HTTP error fetching stock data: {e.response.status_code}: {error_detail}")
-                raise e
-            except Exception as e:
-                logger.error(f"Error fetching stock data: {e}")
-                raise e
-
-        logger.info(f"Collected {len(all_ticks)} stock ticks across {page_count} pages")
-
-        # Convert to expected format
-        stock_response = {
-            "header": {
-                "latency_ms": 0,
-                "format": [
-                    "ms_of_day",
-                    "bid_size",
-                    "bid_exchange",
-                    "bid",
-                    "bid_condition",
-                    "ask_size",
-                    "ask_exchange",
-                    "ask",
-                    "ask_condition",
-                    "date",
-                ],
-            },
-            "response": all_ticks,
-        }
-
-        return orjson.dumps(stock_response, default=_decimal_default).decode("utf-8")
-
-    def _build_option_url(self, request: HistoricalOptionRequest) -> str:
+    def _build_option_url(self, request: HistOptionBulkRequest) -> str:
         """Build URL for ThetaData bulk option quote endpoint."""
-        params = {
-            "root": request.root,
-            "exp": request.exp,
-            "start_date": request.start_date,
-            "end_date": request.end_date,
-            "use_csv": str(self.config.use_csv).lower(),
-            "pretty_time": str(self.config.pretty_time).lower(),
-        }
-
+        params = {"root": request.root, "exp": request.exp, "start_date": request.date, "end_date": request.date}
         if request.interval is not None:
             params["ivl"] = request.interval
-        if request.start_time is not None:
-            params["start_time"] = request.start_time
-        if request.end_time is not None:
-            params["end_time"] = request.end_time
 
-        base_url = f"{self.config.base_url}/bulk_hist/option/quote"
+        base_url = f"{self.config.base_url}/bulk_hist/option/{request.endpoint}"
         return f"{base_url}?{urlencode(params)}"
-
-    def _build_stock_url(self, request: HistoricalOptionRequest) -> str:
-        """Build URL for ThetaData historical stock quote endpoint."""
-        params = {
-            "root": request.root,
-            "start_date": request.start_date,
-            "end_date": request.end_date,
-            "use_csv": str(self.config.use_csv).lower(),
-            "pretty_time": str(self.config.pretty_time).lower(),
-        }
-
-        if request.interval is not None:
-            params["ivl"] = request.interval
-        if request.start_time is not None:
-            params["start_time"] = request.start_time
-        if request.end_time is not None:
-            params["end_time"] = request.end_time
-
-        base_url = f"{self.config.base_url}/hist/stock/quote"
-        return f"{base_url}?{urlencode(params)}"
-
-    def _stream_json_items(self, response: httpx.Response) -> Iterator[Dict[str, Any]]:
-        """
-        Stream individual option contract items from ThetaData JSON response.
-
-        Args:
-            response: httpx Response object
-
-        Yields:
-            Individual contract records with ticks and contract info
-        """
-        try:
-            content = response.content
-            items = ijson.items(content, "response.item")
-
-            for item in items:
-                if isinstance(item, dict):
-                    yield item
-                else:
-                    logger.warning(f"Unexpected item format: {type(item)}")
-
-        except ijson.JSONError as e:
-            logger.error(f"JSON streaming error: {e}")
-            raise e
-        except Exception as e:
-            logger.error(f"Streaming error: {e}")
-            raise e
-
-    def _get_json_header(self, response: httpx.Response) -> Dict[str, Any]:
-        """
-        Extract header from ThetaData response for pagination.
-
-        Args:
-            response: httpx Response object
-
-        Returns:
-            Header dict or empty dict if parsing fails
-        """
-        try:
-            content = response.content
-            header_parser = ijson.items(content, "header")
-            return next(header_parser, {})
-        except Exception as e:
-            logger.warning(f"Could not extract header: {e}")
-            return {}
 
     def close(self) -> None:
         """Close the HTTP client."""
-        if hasattr(self, "client"):
-            self.client.close()
+        if hasattr(self, "http_client"):
+            self.http_client.close()
+        if hasattr(self, "stock_client"):
+            self.stock_client.close()

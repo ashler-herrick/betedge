@@ -15,9 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from betedge_data.manager.models import (
-    DataProcessingResponse,
-    ErrorResponse,
-    HistoricalOptionRequest,
+    ExternalHistoricalOptionRequest,
+    ExternalHistoricalStockRequest,
+    ExternalEarningsRequest,
 )
 from betedge_data.manager.service import DataProcessingService
 
@@ -56,8 +56,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI application
 app = FastAPI(
-    title="BetEdge Historical Options API",
-    description="REST API for processing historical option data with date range support",
+    title="BetEdge Historical Data API",
+    description="REST API for processing historical options and stock data with date range support",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -77,26 +77,28 @@ async def global_exception_handler(request: Request, exc: Exception):
     """Global exception handler for unhandled errors."""
     logger.error(f"Unhandled exception in {request.method} {request.url}: {exc}", exc_info=True)
 
-    error_response = ErrorResponse(
-        error_code="INTERNAL_ERROR", message="An internal error occurred while processing the request", details=str(exc)
-    )
+    error_response = {
+        "error_code": "INTERNAL_ERROR",
+        "message": "An internal error occurred while processing the request",
+        "details": str(exc),
+    }
 
-    return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=error_response.dict())
+    return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=error_response)
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service": "betedge-historical-options"}
+    return {"status": "healthy", "service": "betedge-historical-data"}
 
 
 @app.get("/")
 async def root():
     """Root endpoint with API information."""
     return {
-        "service": "BetEdge Historical Options API",
+        "service": "BetEdge Historical Data API",
         "version": "1.0.0",
-        "endpoints": ["/historical/option"],
+        "endpoints": ["/historical/option", "/historical/stock", "/earnings"],
         "docs": "/docs",
         "health": "/health",
     }
@@ -104,49 +106,67 @@ async def root():
 
 @app.post(
     "/historical/option",
-    response_model=DataProcessingResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Process historical option data with date range support",
     description="Fetch filtered historical option data for a date range and upload each day to object storage",
 )
-async def process_historical_option(request: HistoricalOptionRequest) -> DataProcessingResponse:
-    """
-    Process historical option data request with date range support.
-
-    Fetches historical option data with time-matched underlying prices,
-    applies moneyness and DTE filtering via Rust parser, and uploads
-    each day's Parquet data to MinIO object storage.
-
-    Date ranges are automatically split into individual days, with each
-    day uploaded as a separate file with hierarchical organization.
-
-    Args:
-        request: Historical option data request parameters
-
-    Returns:
-        Processing response with metadata about the operation
-
-    Raises:
-        HTTPException: If request validation fails or processing errors occur
-    """
+async def process_historical_option(request: ExternalHistoricalOptionRequest):
+    """Process historical option data request with date range support."""
     request_id = uuid4()
     logger.info(f"Received historical option request {request_id}: {request.root}")
 
     try:
-        response = await service.process_historical_option_request(request, request_id)
-
-        if response.status == "error":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=response.message)
-
-        return response
-
-    except HTTPException:
-        raise
+        await service.process_request(request, request_id)
+        return {"status": "success", "request_id": str(request_id)}
     except Exception as e:
         logger.error(f"Error processing historical option request {request_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process historical option request: {str(e)}",
+        )
+
+
+@app.post(
+    "/historical/stock",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Process historical stock data with date range support",
+    description="Fetch historical stock quote data for a date range and upload each day to object storage",
+)
+async def process_historical_stock(request: ExternalHistoricalStockRequest):
+    """Process historical stock data request with date range support."""
+    request_id = uuid4()
+    logger.info(f"Received historical stock request {request_id}: {request.root}")
+
+    try:
+        await service.process_request(request, request_id)
+        return {"status": "success", "request_id": str(request_id)}
+    except Exception as e:
+        logger.error(f"Error processing historical stock request {request_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process historical stock request: {str(e)}",
+        )
+
+
+@app.post(
+    "/earnings",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Process earnings data with date range support",
+    description="Fetch earnings data for a date range and upload to object storage organized by month",
+)
+async def process_earnings(request: ExternalEarningsRequest):
+    """Process earnings data request with date range support."""
+    request_id = uuid4()
+    logger.info(f"Received earnings request {request_id} from {request.start_date} to {request.end_date}")
+
+    try:
+        await service.process_request(request, request_id)
+        return {"status": "success", "request_id": str(request_id)}
+    except Exception as e:
+        logger.error(f"Error processing earnings request {request_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to process earnings request: {str(e)}",
         )
 
 
@@ -157,64 +177,17 @@ async def process_historical_option(request: HistoricalOptionRequest) -> DataPro
 async def get_configuration():
     """Get current service configuration (non-sensitive fields only)."""
     return {
-        "message": "Configuration endpoint available for historical options service",
+        "message": "Configuration endpoint available for historical data service",
         "storage_type": "MinIO S3-compatible object storage",
-        "storage_path_pattern": "historical-options/{symbol}/{year}/{month}/{day}/{filename}.parquet",
+        "storage_patterns": {
+            "options": "historical-options/{symbol}/{year}/{month}/{day}/{filename}.parquet",
+            "stocks": "historical-stock/{symbol}/{year}/{month}/{day}/{filename}.parquet",
+            "earnings": "earnings/{year}/{month}/earnings-{year}-{month}.parquet",
+        },
     }
 
 
-@app.get("/storage/stats")
-async def get_storage_stats():
-    """Get MinIO storage statistics."""
-    if not service or not service.minio_publisher:
-        raise HTTPException(status_code=503, detail="MinIO publisher not available")
-
-    try:
-        stats = service.minio_publisher.get_bucket_stats()
-        stats["force_refresh_mode"] = service.force_refresh
-        return stats
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get storage stats: {str(e)}")
-
-
-@app.get("/storage/symbol/{symbol}")
-async def list_symbol_files(symbol: str, start_date: str = None, end_date: str = None, limit: int = 100):
-    """List files for a symbol with optional date filtering."""
-    if not service or not service.minio_publisher:
-        raise HTTPException(status_code=503, detail="MinIO publisher not available")
-
-    try:
-        files = service.minio_publisher.list_files_for_symbol(
-            root=symbol.upper(), start_date=start_date, end_date=end_date, limit=limit
-        )
-        return {"symbol": symbol.upper(), "files": files, "count": len(files)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list files for {symbol}: {str(e)}")
-
-
-@app.delete("/storage/symbol/{symbol}")
-async def delete_symbol_files(symbol: str):
-    """Delete all files for a symbol (use with caution)."""
-    if not service or not service.minio_publisher:
-        raise HTTPException(status_code=503, detail="MinIO publisher not available")
-
-    try:
-        # Get all files for the symbol
-        files = service.minio_publisher.list_files_for_symbol(root=symbol.upper())
-
-        deleted_count = 0
-        for file_info in files:
-            if service.minio_publisher.delete_file(file_info["object_name"]):
-                deleted_count += 1
-
-        return {
-            "symbol": symbol.upper(),
-            "deleted_files": deleted_count,
-            "total_files": len(files),
-            "message": f"Deleted {deleted_count}/{len(files)} files for {symbol}",
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete files for {symbol}: {str(e)}")
+# Storage utility endpoints removed - not compatible with simplified service
 
 
 if __name__ == "__main__":

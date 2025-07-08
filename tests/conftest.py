@@ -15,8 +15,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from minio import Minio
 
-from betedge_data.storage.config import MinIOConfig, MinIOPublishConfig
-from betedge_data.manager.models import HistoricalOptionRequest
+from betedge_data.storage.config import MinIOConfig
+from betedge_data.manager.models import ExternalHistoricalOptionRequest
 
 
 # ============= MinIO Fixtures =============
@@ -169,13 +169,10 @@ def sample_parquet_file(tmp_path):
 @pytest.fixture
 def historical_option_request():
     """Sample historical option request."""
-    return HistoricalOptionRequest(
+    return ExternalHistoricalOptionRequest(
         root="AAPL",
         start_date="20231113",
         end_date="20231117",
-        exp=0,
-        max_dte=30,
-        base_pct=0.1,
         interval=900000,  # 15 minutes
     )
 
@@ -191,14 +188,6 @@ def historical_stock_request():
         "interval": 60000,  # 1 minute
         "rth": True,
     }
-
-
-@pytest.fixture
-def minio_publish_config():
-    """Sample MinIO publish configuration."""
-    return MinIOPublishConfig(
-        schema="quote", root="AAPL", date="20231117", interval=900000, exp="0", filter_type="filtered"
-    )
 
 
 # ============= File System Fixtures =============
