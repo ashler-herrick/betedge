@@ -1,5 +1,4 @@
 import requests
-from datetime import datetime
 
 headers = {
     "authority": "api.nasdaq.com",

@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from pydantic import BaseModel, Field, field_validator
-from betedge_data.manager.utils import generate_date_list, generate_month_list
+from betedge_data.manager.utils import generate_month_list, generate_trading_date_list
 from betedge_data.historical.option.models import HistOptionBulkRequest
 from betedge_data.historical.stock.models import HistStockRequest
 from betedge_data.alternative.earnings.models import EarningsRequest
@@ -21,7 +21,7 @@ class ExternalBaseRequest(BaseModel, ABC):
     """Abstract base class for all data processing requests."""
 
     @abstractmethod
-    def generate_requests(self) -> List[IRequest]:
+    def get_subrequests(self) -> List[IRequest]:
         """
         Generate request objects that can be passed the ThetaData API.
 
@@ -37,6 +37,7 @@ class ExternalBaseRequest(BaseModel, ABC):
         """
         pass
 
+
 class ExternalHistoricalOptionRequest(ExternalBaseRequest):
     """Request model for historical option data endpoint."""
 
@@ -48,6 +49,9 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
     return_format: str = Field("parquet", description="Return format for the request, either parquet or ipc.")
     start_time: Optional[int] = Field(None, description="Start time in milliseconds since midnight ET", ge=0)
     end_time: Optional[int] = Field(None, description="End time in milliseconds since midnight ET", ge=0)
+    
+    # Pre-computed requests attribute
+    requests: List[HistOptionBulkRequest] = Field(default_factory=list, init=False, repr=False)
 
     @field_validator("start_date", "end_date")
     @classmethod
@@ -68,15 +72,15 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
             raise ValueError("end_date must be >= start_date")
         return v
 
-    def generate_requests(self) -> List[HistOptionBulkRequest]:
-        """
-        Generates requests that the ThetaData API can handle from a larger bulk request.
+    def __init__(self, **data):
+        """Initialize and pre-compute the requests list."""
+        super().__init__(**data)
+        self.requests = self._compute_requests()
 
-        Returns:
-            List of HistOptionBulkRequest objects
-        """
-        dates = generate_date_list(self.start_date, self.end_date)
-        requests = [
+    def _compute_requests(self) -> List[HistOptionBulkRequest]:
+        """Compute the list of requests for trading days only."""
+        dates = generate_trading_date_list(self.start_date, self.end_date)
+        return [
             HistOptionBulkRequest(
                 root=self.root,
                 date=date,
@@ -86,7 +90,15 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
             )
             for date in dates
         ]
-        return requests
+
+    def get_subrequests(self) -> List[HistOptionBulkRequest]:
+        """
+        Return pre-computed requests for trading days only.
+
+        Returns:
+            List of HistOptionBulkRequest objects for trading days
+        """
+        return self.requests
 
     def get_client(self):
         """Return HistoricalOptionClient instance for this request type."""
@@ -104,6 +116,9 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
     return_format: str = Field("parquet", description="Return format for the request, either parquet or ipc.")
     start_time: Optional[int] = Field(None, description="Start time in milliseconds since midnight ET", ge=0)
     end_time: Optional[int] = Field(None, description="End time in milliseconds since midnight ET", ge=0)
+    
+    # Pre-computed requests attribute
+    requests: List[HistStockRequest] = Field(default_factory=list, init=False, repr=False)
 
     @field_validator("start_date", "end_date")
     @classmethod
@@ -124,15 +139,15 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
             raise ValueError("end_date must be >= start_date")
         return v
 
-    def generate_requests(self) -> List[HistStockRequest]:
-        """
-        Generates requests that the ThetaData API can handle from a larger bulk request.
+    def __init__(self, **data):
+        """Initialize and pre-compute the requests list."""
+        super().__init__(**data)
+        self.requests = self._compute_requests()
 
-        Returns:
-            List of HistOptionBulkRequest objects
-        """
-        dates = generate_date_list(self.start_date, self.end_date)
-        requests = [
+    def _compute_requests(self) -> List[HistStockRequest]:
+        """Compute the list of requests for trading days only."""
+        dates = generate_trading_date_list(self.start_date, self.end_date)
+        return [
             HistStockRequest(
                 root=self.root,
                 date=date,
@@ -142,7 +157,15 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
             )
             for date in dates
         ]
-        return requests
+
+    def get_subrequests(self) -> List[HistStockRequest]:
+        """
+        Return pre-computed requests for trading days only.
+
+        Returns:
+            List of HistStockRequest objects for trading days
+        """
+        return self.requests
 
     def get_client(self):
         """Return HistoricalStockClient instance for this request type."""
@@ -155,6 +178,9 @@ class ExternalEarningsRequest(ExternalBaseRequest):
     start_date: str = Field(..., description="Start date in YYYYMM format", pattern=r"^\d{6}$")
     end_date: str = Field(..., description="End date in YYYYMM format", pattern=r"^\d{6}$")
     return_format: str = Field("parquet", description="Return format (currently only parquet supported)")
+    
+    # Pre-computed requests attribute
+    requests: List[EarningsRequest] = Field(default_factory=list, init=False, repr=False)
 
     @field_validator("end_date")
     @classmethod
@@ -183,18 +209,27 @@ class ExternalEarningsRequest(ExternalBaseRequest):
             raise ValueError(f"Invalid date format: {v}. Expected YYYYMM format")
         return v
 
-    def generate_requests(self) -> List[EarningsRequest]:
+    def __init__(self, **data):
+        """Initialize and pre-compute the requests list."""
+        super().__init__(**data)
+        self.requests = self._compute_requests()
+
+    def _compute_requests(self) -> List[EarningsRequest]:
+        """Compute the list of requests."""
+        dates = generate_month_list(self.start_date, self.end_date)
+        return [
+            EarningsRequest(year=date[0], month=date[1], return_format=self.return_format) 
+            for date in dates
+        ]
+
+    def get_subrequests(self) -> List[EarningsRequest]:
         """
-        Generates requests that the ThetaData API can handle from a larger bulk request.
+        Return pre-computed requests.
 
         Returns:
             List of EarningsRequest objects
         """
-        dates = generate_month_list(self.start_date, self.end_date)
-
-        requests = [EarningsRequest(year=date[0], month=date[1], return_format=self.return_format) for date in dates]
-
-        return requests
+        return self.requests
 
     def get_client(self):
         """Return EarningsClient instance for this request type."""

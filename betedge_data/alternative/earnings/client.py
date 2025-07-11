@@ -9,6 +9,9 @@ import pyarrow.parquet as pq
 
 from betedge_data.alternative.earnings.models import EarningsRequest, EarningsRecord
 from betedge_data.common.interface import IClient
+from betedge_data.common.http import get_http_client
+from betedge_data.common.exceptions import NoDataAvailableError
+from betedge_data.manager.utils import generate_trading_date_list
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +25,10 @@ class EarningsClient(IClient):
         self.headers = {
             "authority": "api.nasdaq.com",
             "accept": "application/json, text/plain, */*",
-            "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36",
+            "user-agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36"
+            ),
             "origin": "https://www.nasdaq.com",
             "sec-fetch-site": "same-site",
             "sec-fetch-mode": "cors",
@@ -30,20 +36,7 @@ class EarningsClient(IClient):
             "referer": "https://www.nasdaq.com/",
             "accept-language": "en-US,en;q=0.9",
         }
-        self.client = httpx.Client(
-            timeout=30.0,
-            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-            headers=self.headers,
-        )
-
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit with cleanup."""
-        if hasattr(self, "client"):
-            self.client.close()
+        self.client = get_http_client()
 
     def get_data(self, request: EarningsRequest) -> io.BytesIO:
         """
@@ -62,8 +55,24 @@ class EarningsClient(IClient):
             raise ValueError(f"Expected return_format='parquet', got '{request.return_format}'")
 
         try:
-            # Generate trading dates for the month
-            trading_dates = self._generate_trading_dates(request.year, request.month)
+            # Generate trading dates for the month using proper holiday-aware function
+            start_date = datetime(request.year, request.month, 1)
+            if request.month == 12:
+                end_date = datetime(request.year + 1, 1, 1) - timedelta(days=1)
+            else:
+                end_date = datetime(request.year, request.month + 1, 1) - timedelta(days=1)
+            
+            # Convert to YYYYMMDD format for generate_trading_date_list
+            start_date_str = start_date.strftime("%Y%m%d")
+            end_date_str = end_date.strftime("%Y%m%d")
+            
+            # Get trading dates as integers, then convert to YYYY-MM-DD format for API
+            trading_dates_int = generate_trading_date_list(start_date_str, end_date_str)
+            trading_dates = [
+                datetime.strptime(str(date_int), "%Y%m%d").strftime("%Y-%m-%d")
+                for date_int in trading_dates_int
+            ]
+            
             logger.info(f"Generated {len(trading_dates)} trading dates for {request.year}-{request.month:02d}")
 
             # Fetch earnings data for all dates
@@ -86,18 +95,21 @@ class EarningsClient(IClient):
                     failed_dates.append(date_str)
                     continue
 
+            successful_dates = len(trading_dates) - len(failed_dates)
+            total_dates = len(trading_dates)
             logger.info(
-                f"Data collection complete: {len(all_records)} records from {len(trading_dates) - len(failed_dates)}/{len(trading_dates)} dates"
+                f"Data collection complete: {len(all_records)} records from {successful_dates}/{total_dates} dates"
             )
 
             if failed_dates:
+                failed_preview = failed_dates[:5]
+                ellipsis = '...' if len(failed_dates) > 5 else ''
                 logger.warning(
-                    f"Failed to fetch data for {len(failed_dates)} dates: {failed_dates[:5]}{'...' if len(failed_dates) > 5 else ''}"
+                    f"Failed to fetch data for {len(failed_dates)} dates: {failed_preview}{ellipsis}"
                 )
 
             if not all_records:
                 logger.error(f"No earnings data found for {request.year}-{request.month:02d}")
-                # Return empty Parquet with proper schema
                 raise RuntimeError
 
             # Convert to Parquet
@@ -107,39 +119,9 @@ class EarningsClient(IClient):
 
         except Exception as e:
             logger.error(f"Monthly earnings data fetch failed for {request.year}-{request.month:02d}: {str(e)}")
-            logger.debug(f"Monthly earnings fetch error details", exc_info=True)
+            logger.debug("Monthly earnings fetch error details", exc_info=True)
             raise RuntimeError(f"Monthly earnings data fetch failed: {e}") from e
 
-    def _generate_trading_dates(self, year: int, month: int) -> List[str]:
-        """
-        Generate list of potential trading dates for a specific month.
-
-        Args:
-            year: Year to generate dates for
-            month: Month to generate dates for (1-12)
-
-        Returns:
-            List of date strings in YYYY-MM-DD format
-        """
-        # Get first day of month
-        start_date = datetime(year, month, 1)
-
-        # Get last day of month
-        if month == 12:
-            end_date = datetime(year + 1, 1, 1) - timedelta(days=1)
-        else:
-            end_date = datetime(year, month + 1, 1) - timedelta(days=1)
-
-        trading_dates = []
-        current_date = start_date
-
-        while current_date <= end_date:
-            # Skip weekends (Monday=0, Sunday=6)
-            if current_date.weekday() < 5:  # Monday to Friday
-                trading_dates.append(current_date.strftime("%Y-%m-%d"))
-            current_date += timedelta(days=1)
-
-        return trading_dates
 
     def _fetch_daily_earnings(self, date_str: str) -> List[EarningsRecord]:
         """
@@ -152,8 +134,12 @@ class EarningsClient(IClient):
             List of normalized EarningsRecord objects
         """
         try:
-            # Convert date format for API (YYYY-MM-DD)
-            response = self.client.get(self.base_url, params={"date": date_str})
+            # Use shared HTTP client's internal httpx client for the request
+            response = self.client.client.get(
+                self.base_url,
+                params={"date": date_str},
+                headers=self.headers
+            )
             response.raise_for_status()
 
             data = response.json()
@@ -332,8 +318,3 @@ class EarningsClient(IClient):
         except Exception as e:
             logger.error(f"Failed to convert earnings data to Parquet: {str(e)}")
             raise RuntimeError(f"Parquet conversion failed: {e}") from e
-
-    def close(self) -> None:
-        """Close the HTTP client."""
-        if hasattr(self, "client"):
-            self.client.close()

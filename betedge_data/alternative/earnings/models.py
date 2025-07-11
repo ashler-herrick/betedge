@@ -8,6 +8,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 from betedge_data.common.interface import IRequest
 
+
 class EarningsRequest(BaseModel, IRequest):
     """Request parameters for monthly earnings data."""
 

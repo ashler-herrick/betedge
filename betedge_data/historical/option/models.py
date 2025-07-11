@@ -8,6 +8,7 @@ from datetime import datetime
 
 from betedge_data.common.interface import IRequest
 
+
 class HistOptionBulkRequest(BaseModel, IRequest):
     """Request parameters for historical option data."""
 
@@ -76,7 +77,8 @@ class HistOptionBulkRequest(BaseModel, IRequest):
         Generate MinIO object keys for historical option data.
 
         Returns list of object keys for each date and expiration combination.
-        Format: historical-options/quote/{root}/{year}/{month:02d}/{day:02d}/{interval_str}/{exp_str}/filtered/data.parquet
+        Format: historical-options/quote/{root}/{year}/{month:02d}/{day:02d}/
+        {interval_str}/{exp_str}/filtered/data.parquet
 
         Returns:
             Object key covering all dates and expirations in the request
@@ -84,5 +86,7 @@ class HistOptionBulkRequest(BaseModel, IRequest):
         exp_str = expiration_to_string(self.exp)
         date_obj = datetime.strptime(str(self.date), "%Y%m%d")
         interval_str = interval_ms_to_string(self.interval)
-        object_key = f"historical-options/{self.endpoint}/{self.root}/{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}/{interval_str}/{exp_str}/data.{self.return_format}"
+        base_path = f"historical-options/{self.endpoint}/{self.root}"
+        date_path = f"{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}"
+        object_key = f"{base_path}/{date_path}/{interval_str}/{exp_str}/data.{self.return_format}"
         return object_key

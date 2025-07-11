@@ -2,10 +2,11 @@
 Configuration models for MinIO object storage.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from pydantic_settings import BaseSettings
 
 
-class MinIOConfig(BaseModel):
+class MinIOConfig(BaseSettings):
     """Configuration for MinIO S3-compatible object storage."""
 
     endpoint: str = Field(default="minio:9000", description="MinIO server endpoint")
@@ -20,3 +21,11 @@ class MinIOConfig(BaseModel):
         description="Use HTTPS for MinIO connections",
     )
     region: str = Field(default="us-east-1", description="MinIO region")
+
+    model_config = {
+        "env_prefix": "MINIO_",
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+        "extra": "ignore",  # Ignore extra environment variables
+    }

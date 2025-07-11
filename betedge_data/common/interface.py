@@ -1,16 +1,16 @@
 from abc import ABC, abstractmethod
 from io import BytesIO
 
-class IRequest(ABC):
 
+class IRequest(ABC):
     @abstractmethod
     def generate_object_key(self) -> str:
         """
-        Returns a MinIO compatible object key 
+        Returns a MinIO compatible object key
         """
 
-class IClient(ABC):
 
+class IClient(ABC):
     @abstractmethod
     def get_data(self) -> BytesIO:
         """

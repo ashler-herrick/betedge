@@ -11,6 +11,7 @@ from betedge_data.common.models import (
     Header,
 )
 
+
 @pytest.mark.unit
 class TestHistoricalStockClient:
     """Unit tests for HistoricalStockClient."""

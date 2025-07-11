@@ -9,6 +9,7 @@ import pyarrow.ipc as ipc
 
 from betedge_data.common.http import get_http_client
 from betedge_data.common.models import OptionThetaDataResponse, StockThetaDataResponse, TICK_SCHEMAS, CONTRACT_SCHEMA
+from betedge_data.common.exceptions import NoDataAvailableError
 from betedge_data.historical.config import HistoricalClientConfig
 from betedge_data.historical.option.models import HistOptionBulkRequest
 from betedge_data.historical.stock.client import HistoricalStockClient
@@ -33,15 +34,6 @@ class HistoricalOptionClient(IClient):
         self.http_client = get_http_client()
         self.stock_client = HistoricalStockClient()
 
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit with cleanup."""
-        if hasattr(self, "stock_client"):
-            self.stock_client.close()
-
     def get_data(self, request: HistOptionBulkRequest) -> io.BytesIO:
         """
         Get option data as Parquet or IPC bytes for streaming.
@@ -57,8 +49,10 @@ class HistoricalOptionClient(IClient):
         # Fetch option and stock data
         logger.info(f"Fetching option and stock data for {request.root}")
         option_data, stock_data = self._fetch_option_and_stock_data_models(request)
+        option_count = len(option_data.response)
+        stock_count = len(stock_data.response)
         logger.debug(
-            f"Data fetch complete - option records: {len(option_data.response)}, stock records: {len(stock_data.response)}"
+            f"Data fetch complete - option records: {option_count}, stock records: {stock_count}"
         )
 
         try:
@@ -76,6 +70,9 @@ class HistoricalOptionClient(IClient):
             else:
                 raise ValueError(f"Unsupported return_format: {request.return_format}")
 
+        except NoDataAvailableError:
+            logger.info(f"No data available for {request.root} on {request.date}")
+            raise  # Re-raise to be handled by service layer
         except Exception as e:
             logger.error(f"Data conversion failed for {request.root}: {str(e)}", exc_info=True)
             raise RuntimeError(f"Option data conversion failed: {e}") from e
@@ -109,15 +106,20 @@ class HistoricalOptionClient(IClient):
             try:
                 stock_data = stock_future.result()
                 logger.info(f"Successfully fetched stock data for {request.root}: {len(stock_data.response)} records")
+            except NoDataAvailableError:
+                raise  # Let NoDataAvailableError propagate
             except Exception as e:
                 logger.error(f"Failed to fetch stock data for {request.root}: {str(e)}", exc_info=True)
                 raise RuntimeError(f"Stock data fetch failed: {e}") from e
 
             try:
                 option_data = option_future.result()
+                record_count = len(option_data.response)
                 logger.info(
-                    f"Successfully fetched option data for {request.root} exp {request.exp}: {len(option_data.response)} records"
+                    f"Successfully fetched option data for {request.root} exp {request.exp}: {record_count} records"
                 )
+            except NoDataAvailableError:
+                raise  # Let NoDataAvailableError propagate
             except Exception as e:
                 logger.error(
                     f"Failed to fetch option data for {request.root} exp {request.exp}: {str(e)}", exc_info=True
@@ -140,8 +142,10 @@ class HistoricalOptionClient(IClient):
         Returns:
             Dict with lists of flattened tick data
         """
+        option_count = len(option_data.response)
+        stock_count = len(stock_data.response)
         logger.debug(
-            f"Flattening {len(option_data.response)} option contracts and {len(stock_data.response)} stock records using {endpoint} schema"
+            f"Flattening {option_count} option contracts and {stock_count} stock records using {endpoint} schema"
         )
 
         # Get schema configuration for the endpoint
@@ -350,6 +354,8 @@ class HistoricalOptionClient(IClient):
             # Return validated model directly
             return result
 
+        except NoDataAvailableError:
+            raise  # Let NoDataAvailableError propagate
         except Exception as e:
             logger.error(f"Error fetching option data for exp {request.exp}: {e}")
             raise RuntimeError(f"Option data fetch failed: {e}") from e
@@ -362,10 +368,3 @@ class HistoricalOptionClient(IClient):
 
         base_url = f"{self.config.base_url}/bulk_hist/option/{request.endpoint}"
         return f"{base_url}?{urlencode(params)}"
-
-    def close(self) -> None:
-        """Close the HTTP client."""
-        if hasattr(self, "http_client"):
-            self.http_client.close()
-        if hasattr(self, "stock_client"):
-            self.stock_client.close()

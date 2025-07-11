@@ -7,7 +7,6 @@ Configure the parameters below and run the script to make a stock data request.
 
 import json
 import time
-from datetime import datetime
 
 import requests
 

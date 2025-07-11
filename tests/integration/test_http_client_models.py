@@ -17,6 +17,7 @@ from betedge_data.common.models import (
 )
 
 
+@pytest.mark.integration
 class TestPaginatedHTTPClientIntegration:
     """Integration tests for PaginatedHTTPClient with real API data."""
 

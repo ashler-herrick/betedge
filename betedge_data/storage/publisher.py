@@ -87,6 +87,31 @@ class MinIOPublisher:
         except Exception as e:
             logger.error(f"Failed to upload parquet data to {object_key}: {e}", exc_info=True)
 
+    def file_exists(self, object_key: str) -> bool:
+        """
+        Check if a file exists in MinIO storage.
+
+        Args:
+            object_key: The object key/path to check
+
+        Returns:
+            True if the file exists, False otherwise
+        """
+        try:
+            self.client.stat_object(self.bucket, object_key)
+            return True
+        except S3Error as e:
+            # Object doesn't exist or other S3 error
+            if e.code == "NoSuchKey":
+                return False
+            # For other errors, log and return False
+            logger.debug(f"Error checking if file exists {object_key}: {e}")
+            return False
+        except Exception as e:
+            # Handle any other unexpected errors
+            logger.debug(f"Unexpected error checking file existence {object_key}: {e}")
+            return False
+
     def list_existing_files(
         self,
         request: ExternalBaseRequest,

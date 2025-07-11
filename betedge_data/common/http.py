@@ -148,6 +148,13 @@ class PaginatedHTTPClient:
                     if page_count == 1:
                         first_response_header = header
                 else:
+                    # Check if response is "No data" text before parsing JSON
+                    response_text = response.text
+                    if response_text.startswith(":No data for the specified timeframe"):
+                        from betedge_data.common.exceptions import NoDataAvailableError
+
+                        raise NoDataAvailableError(f"No data available: {response_text}")
+
                     # Parse as regular JSON
                     data = response.json()
 
@@ -183,6 +190,11 @@ class PaginatedHTTPClient:
                 logger.error(f"HTTP error on page {page_count}: {e.response.status_code}: {error_detail}")
                 raise
             except Exception as e:
+                # Check if this is a NoDataAvailableError and let it propagate
+                from betedge_data.common.exceptions import NoDataAvailableError
+
+                if isinstance(e, NoDataAvailableError):
+                    raise
                 logger.error(f"Error fetching page {page_count}: {e}")
                 raise RuntimeError(f"Failed to fetch page {page_count}: {e}") from e
 
@@ -218,11 +230,25 @@ class PaginatedHTTPClient:
         """
         try:
             response = self.client.get(url, headers=headers)
+
+            # Check for ThetaData "No data" response (status 472)
+            if response.status_code == 472:
+                response_text = response.text
+                if "No data for the specified timeframe" in response_text:
+                    from betedge_data.common.exceptions import NoDataAvailableError
+
+                    raise NoDataAvailableError(f"No data available: {response_text}")
+
             response.raise_for_status()
             return response
         except httpx.HTTPStatusError:
             raise
         except Exception as e:
+            # Check if this is a NoDataAvailableError and let it propagate
+            from betedge_data.common.exceptions import NoDataAvailableError
+
+            if isinstance(e, NoDataAvailableError):
+                raise
             logger.error(f"Request failed for {url}: {e}")
             raise
 

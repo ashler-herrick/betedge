@@ -220,6 +220,36 @@ def mock_env_vars(monkeypatch):
     return test_env
 
 
+@pytest.fixture
+def integration_env_vars(monkeypatch):
+    """Environment variables for integration tests with local MinIO."""
+    integration_env = {
+        "MINIO_ENDPOINT": "localhost:9000",
+        "MINIO_ACCESS_KEY": "minioadmin",
+        "MINIO_SECRET_KEY": "minioadmin123",
+        "MINIO_BUCKET": "test-integration-bucket",
+        "MINIO_SECURE": "false",
+        "MINIO_REGION": "us-east-1",
+        "THETA_BASE_URL": "http://localhost:25510/v2",
+        "THETA_TIMEOUT": "30",
+    }
+
+    for key, value in integration_env.items():
+        monkeypatch.setenv(key, value)
+
+    return integration_env
+
+
+@pytest.fixture
+def mock_minio_publisher():
+    """Mock MinIOPublisher for unit tests."""
+    publisher = MagicMock()
+    publisher.file_exists.return_value = False
+    publisher.publish = MagicMock()
+    publisher.close = MagicMock()
+    return publisher
+
+
 # ============= HTTP Client Fixtures =============
 
 

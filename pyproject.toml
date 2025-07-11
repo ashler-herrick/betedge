@@ -65,7 +65,7 @@ filterwarnings = [
 ]
 markers = [
     "unit: mark test as unit test (no external dependencies)",
-    "integration: mark test as integration test (requires services)",
+    "integration: mark test as integration test (requires services like MinIO)",
     "e2e: mark test as end-to-end test",
     "slow: mark test as slow running",
     "asyncio: mark test as an async test"

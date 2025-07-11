@@ -1,20 +1,21 @@
 """
-Integration tests for HistoricalOptionClient.
+Integration tests for HistoricalOptionClient get_data method.
 
-Tests the complete get_bulk_quote method including real API calls,
-Rust filtering, and output format validation with schema inspection.
+Tests the complete get_data method including real API calls,
+data processing, and output format validation with schema inspection.
 """
 
 import io
 import pytest
 import pyarrow.parquet as pq
 import pyarrow.ipc as ipc
-import polars as pl
+import pyarrow as pa
 
 from betedge_data.historical.option.client import HistoricalOptionClient
 from betedge_data.historical.option.models import HistOptionBulkRequest
 
 
+@pytest.mark.integration
 class TestHistoricalOptionClientIntegration:
     """Integration tests for HistoricalOptionClient with real API data."""
 
@@ -23,209 +24,392 @@ class TestHistoricalOptionClientIntegration:
         """Create option client for testing."""
         return HistoricalOptionClient()
 
-    @pytest.fixture
-    def option_bulk_request_params(self):
-        """Parameters for HistOptionBulkRequest testing."""
-        return {
-            "root": "AAPL",
-            "date": 20250702,  # Known good historical date
-            "interval": 900000,  # 15 minute intervals
-            "endpoint": "quote",
-        }
+    def test_get_data_quote_parquet(self, option_client):
+        """Test get_data with quote endpoint and parquet format."""
+        # Test parameters from: http://127.0.0.1:25510/v2/bulk_hist/option/quote?root=AAPL&exp=20231117&start_date=20231110&end_date=20231110&ivl=900000
+        request = HistOptionBulkRequest(
+            root="AAPL",
+            date=20231110,
+            exp=20231117,
+            interval=900000,  # 15 minutes
+            endpoint="quote",
+            return_format="parquet",
+        )
 
-    def test_get_bulk_quote_parquet(self, option_client, option_bulk_request_params):
-        """Test get_bulk_quote with parquet output format."""
-        # Create request with parquet format
-        request = HistOptionBulkRequest(**option_bulk_request_params, return_format="parquet")
+        # Call the method
+        result = option_client.get_data(request)
 
-        with option_client:
-            # Call the method
-            result = option_client.get_bulk_quote(request)
+        # Validate return type
+        assert isinstance(result, io.BytesIO), "Expected BytesIO object"
 
-            # Validate return type
-            assert isinstance(result, io.BytesIO)
+        # Verify we have data
+        buffer_size = len(result.getvalue())
+        assert buffer_size > 0, f"Expected parquet data, got {buffer_size} bytes"
+        print(f"Quote Parquet file size: {buffer_size:,} bytes")
 
-            # Verify we have data
-            buffer_size = len(result.getvalue())
-            assert buffer_size > 0, f"Expected parquet data, got {buffer_size} bytes"
-            print(f"Parquet file size: {buffer_size:,} bytes")
+        # Reset buffer position for reading
+        result.seek(0)
 
-            # Reset buffer position for reading
-            result.seek(0)
+        # Read and validate parquet data
+        table = pq.read_table(result)
 
-            # Read and validate parquet data
-            table = pl.read_parquet(result)
+        # Print schema for debugging
+        print(f"Quote Parquet schema: {table.schema}")
+        print(f"Quote Parquet row count: {len(table):,}")
+        print(f"Quote Parquet column names: {table.column_names}")
 
-            # Print schema for debugging
-            print(f"Parquet schema: {table.schema}")
-            print(f"Parquet row count: {table.height:,}")
-            print(f"Parquet column names: {table.columns}")
+        # Validate we have rows
+        assert len(table) > 0, "Expected option data rows"
 
-            # Validate we have rows
-            assert table.height > 0, "Expected option data rows"
+        # Validate schema has all expected fields for quote endpoint
+        expected_columns = [
+            "ms_of_day",
+            "bid_size",
+            "bid_exchange",
+            "bid",
+            "bid_condition",
+            "ask_size",
+            "ask_exchange",
+            "ask",
+            "ask_condition",
+            "date",
+            "root",
+            "expiration",
+            "strike",
+            "right",
+        ]
+        assert table.column_names == expected_columns, (
+            f"Schema mismatch. Expected: {expected_columns}, Got: {table.column_names}"
+        )
 
-            # Validate we have both option and stock data
-            unique_rights = table.select(pl.col("right")).unique().to_series().to_list()
-            assert "C" in unique_rights or "P" in unique_rights, "Expected call or put options"
-            assert "U" in unique_rights, "Expected underlying stock data"
+        # Validate we have both option and stock data
+        right_column = table.column("right").to_pylist()
+        unique_rights = set(right_column)
+        assert "C" in unique_rights or "P" in unique_rights, "Expected call or put options"
+        assert "U" in unique_rights, "Expected underlying stock data"
 
-            # Validate schema has all expected fields
-            expected_columns = [
-                "ms_of_day",
-                "bid_size",
-                "bid_exchange",
-                "bid_price",
-                "bid_condition",
-                "ask_size",
-                "ask_exchange",
-                "ask_price",
-                "ask_condition",
-                "date",
-                "root",
-                "expiration",
-                "strike",
-                "right",
-            ]
-            assert table.columns == expected_columns, (
-                f"Schema mismatch. Expected: {expected_columns}, Got: {table.columns}"
-            )
+        # Validate data types match expected Arrow schema
+        schema = table.schema
+        assert schema.field("ms_of_day").type == pa.uint32(), "ms_of_day should be uint32"
+        assert schema.field("bid_size").type == pa.uint32(), "bid_size should be uint32"
+        assert schema.field("bid").type == pa.float32(), "bid should be float32"
+        assert schema.field("root").type == pa.string(), "root should be string"
+        assert schema.field("right").type == pa.string(), "right should be string"
 
-            # Validate data types match Rust schema
-            expected_schema = {
-                "ms_of_day": pl.UInt32,
-                "bid_size": pl.UInt16,
-                "bid_exchange": pl.UInt8,
-                "bid_price": pl.Float32,
-                "bid_condition": pl.UInt8,
-                "ask_size": pl.UInt16,
-                "ask_exchange": pl.UInt8,
-                "ask_price": pl.Float32,
-                "ask_condition": pl.UInt8,
-                "date": pl.UInt32,
-                "root": pl.String,
-                "expiration": pl.UInt32,
-                "strike": pl.UInt32,
-                "right": pl.String,
-            }
+        # Validate data content
+        root_values = set(table.column("root").to_pylist())
+        assert root_values == {"AAPL"}, f"Expected only AAPL, got {root_values}"
 
-            for col, expected_type in expected_schema.items():
-                actual_type = table.schema[col]
-                assert actual_type == expected_type, (
-                    f"Type mismatch for {col}: expected {expected_type}, got {actual_type}"
-                )
+        date_values = set(table.column("date").to_pylist())
+        assert date_values == {20231110}, f"Expected date 20231110, got {date_values}"
 
-    def test_get_bulk_quote_ipc(self, option_client, option_bulk_request_params):
-        """Test get_bulk_quote with IPC output format."""
-        # Create request with IPC format
-        request = HistOptionBulkRequest(**option_bulk_request_params, return_format="ipc")
+    def test_get_data_quote_ipc(self, option_client):
+        """Test get_data with quote endpoint and IPC format."""
+        request = HistOptionBulkRequest(
+            root="AAPL", date=20231110, exp=20231117, interval=900000, endpoint="quote", return_format="ipc"
+        )
 
-        with option_client:
-            # Call the method
-            result = option_client.get_bulk_quote(request)
+        # Call the method
+        result = option_client.get_data(request)
 
-            # Validate return type
-            assert isinstance(result, io.BytesIO)
+        # Validate return type
+        assert isinstance(result, io.BytesIO), "Expected BytesIO object"
 
-            # Verify we have data
-            buffer_size = len(result.getvalue())
-            assert buffer_size > 0, f"Expected IPC data, got {buffer_size} bytes"
-            print(f"IPC file size: {buffer_size:,} bytes")
+        # Verify we have data
+        buffer_size = len(result.getvalue())
+        assert buffer_size > 0, f"Expected IPC data, got {buffer_size} bytes"
+        print(f"Quote IPC file size: {buffer_size:,} bytes")
 
-            # Reset buffer position for reading
-            result.seek(0)
+        # Reset buffer position for reading
+        result.seek(0)
 
-            # Read and validate IPC data
-            reader = ipc.RecordBatchFileReader(result)
-            table = reader.read_all()
+        # Read and validate IPC data
+        reader = ipc.RecordBatchFileReader(result)
+        table = reader.read_all()
 
-            # Print schema for debugging
-            print(f"IPC schema: {table.schema}")
-            print(f"IPC row count: {len(table):,}")
-            print(f"IPC column names: {table.column_names}")
+        # Print schema for debugging
+        print(f"Quote IPC schema: {table.schema}")
+        print(f"Quote IPC row count: {len(table):,}")
+        print(f"Quote IPC column names: {table.column_names}")
 
-            # Convert to polars for easier validation
-            table_pl = pl.from_arrow(table)
+        # Validate we have rows
+        assert len(table) > 0, "Expected option data rows"
 
-            # Validate we have rows
-            assert table_pl.height > 0, "Expected option data rows"
+        # Same validations as parquet
+        expected_columns = [
+            "ms_of_day",
+            "bid_size",
+            "bid_exchange",
+            "bid",
+            "bid_condition",
+            "ask_size",
+            "ask_exchange",
+            "ask",
+            "ask_condition",
+            "date",
+            "root",
+            "expiration",
+            "strike",
+            "right",
+        ]
+        assert table.column_names == expected_columns
 
-            # Validate we have both option and stock data
-            unique_rights = table_pl.select(pl.col("right")).unique().to_series().to_list()
-            assert "C" in unique_rights or "P" in unique_rights, "Expected call or put options"
-            assert "U" in unique_rights, "Expected underlying stock data"
+    def test_get_data_ohlc_parquet(self, option_client):
+        """Test get_data with OHLC endpoint and parquet format."""
+        # Test parameters from: http://127.0.0.1:25510/v2/bulk_hist/option/ohlc?root=AAPL&exp=20231103&start_date=20231103&end_date=20231103&ivl=900000
+        request = HistOptionBulkRequest(
+            root="AAPL", date=20231103, exp=20231103, interval=900000, endpoint="ohlc", return_format="parquet"
+        )
 
-            # Validate schema has all expected fields
-            expected_columns = [
-                "ms_of_day",
-                "bid_size",
-                "bid_exchange",
-                "bid_price",
-                "bid_condition",
-                "ask_size",
-                "ask_exchange",
-                "ask_price",
-                "ask_condition",
-                "date",
-                "root",
-                "expiration",
-                "strike",
-                "right",
-            ]
-            assert table_pl.columns == expected_columns, (
-                f"Schema mismatch. Expected: {expected_columns}, Got: {table_pl.columns}"
-            )
+        # Call the method
+        result = option_client.get_data(request)
 
-    def test_get_bulk_quote_both_formats(self, option_client, option_bulk_request_params):
-        """Test that both parquet and IPC formats produce equivalent results."""
-        with option_client:
-            # Get parquet result
-            parquet_request = HistOptionBulkRequest(**option_bulk_request_params, return_format="parquet")
-            parquet_result = option_client.get_bulk_quote(parquet_request)
+        # Validate return type
+        assert isinstance(result, io.BytesIO), "Expected BytesIO object"
 
-            # Get IPC result
-            ipc_request = HistOptionBulkRequest(**option_bulk_request_params, return_format="ipc")
-            ipc_result = option_client.get_bulk_quote(ipc_request)
+        # Verify we have data
+        buffer_size = len(result.getvalue())
+        assert buffer_size > 0, f"Expected parquet data, got {buffer_size} bytes"
+        print(f"OHLC Parquet file size: {buffer_size:,} bytes")
 
-            # Both should return BytesIO
-            assert isinstance(parquet_result, io.BytesIO)
-            assert isinstance(ipc_result, io.BytesIO)
+        # Reset buffer position for reading
+        result.seek(0)
 
-            # Both should have data
-            parquet_size = len(parquet_result.getvalue())
-            ipc_size = len(ipc_result.getvalue())
+        # Read and validate parquet data
+        table = pq.read_table(result)
 
-            assert parquet_size > 0, "Parquet result should have data"
-            assert ipc_size > 0, "IPC result should have data"
+        # Print schema for debugging
+        print(f"OHLC Parquet schema: {table.schema}")
+        print(f"OHLC Parquet row count: {len(table):,}")
+        print(f"OHLC Parquet column names: {table.column_names}")
 
-            print(f"Format comparison - Parquet: {parquet_size:,} bytes, IPC: {ipc_size:,} bytes")
+        # Validate we have rows
+        assert len(table) > 0, "Expected option data rows"
 
-            # Read both formats
-            parquet_result.seek(0)
-            ipc_result.seek(0)
+        # Validate schema has all expected fields for OHLC endpoint
+        expected_columns = [
+            "ms_of_day",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "count",
+            "date",
+            "root",
+            "expiration",
+            "strike",
+            "right",
+        ]
+        assert table.column_names == expected_columns, (
+            f"Schema mismatch. Expected: {expected_columns}, Got: {table.column_names}"
+        )
 
-            parquet_table = pq.read_table(parquet_result)
+        # Validate we have both option and stock data
+        right_column = table.column("right").to_pylist()
+        unique_rights = set(right_column)
+        assert "C" in unique_rights or "P" in unique_rights, "Expected call or put options"
+        assert "U" in unique_rights, "Expected underlying stock data"
 
-            reader = ipc.RecordBatchFileReader(ipc_result)
-            ipc_table = reader.read_all()
+        # Validate data types for OHLC schema
+        schema = table.schema
+        assert schema.field("ms_of_day").type == pa.uint32(), "ms_of_day should be uint32"
+        assert schema.field("open").type == pa.float32(), "open should be float32"
+        assert schema.field("high").type == pa.float32(), "high should be float32"
+        assert schema.field("low").type == pa.float32(), "low should be float32"
+        assert schema.field("close").type == pa.float32(), "close should be float32"
+        assert schema.field("volume").type == pa.uint32(), "volume should be uint32"
+        assert schema.field("count").type == pa.uint32(), "count should be uint32"
 
-            # Compare schemas
-            assert parquet_table.schema.equals(ipc_table.schema), "Schemas should be identical between formats"
+        # Validate data content
+        root_values = set(table.column("root").to_pylist())
+        assert root_values == {"AAPL"}, f"Expected only AAPL, got {root_values}"
 
-            # Compare row counts
-            assert len(parquet_table) == len(ipc_table), "Row counts should be identical between formats"
+        date_values = set(table.column("date").to_pylist())
+        assert date_values == {20231103}, f"Expected date 20231103, got {date_values}"
 
-            print(f"Both formats verified - {len(parquet_table):,} rows with identical schemas")
+    def test_get_data_ohlc_ipc(self, option_client):
+        """Test get_data with OHLC endpoint and IPC format."""
+        request = HistOptionBulkRequest(
+            root="AAPL", date=20231103, exp=20231103, interval=900000, endpoint="ohlc", return_format="ipc"
+        )
+
+        # Call the method
+        result = option_client.get_data(request)
+
+        # Validate return type
+        assert isinstance(result, io.BytesIO), "Expected BytesIO object"
+
+        # Verify we have data
+        buffer_size = len(result.getvalue())
+        assert buffer_size > 0, f"Expected IPC data, got {buffer_size} bytes"
+        print(f"OHLC IPC file size: {buffer_size:,} bytes")
+
+        # Reset buffer position for reading
+        result.seek(0)
+
+        # Read and validate IPC data
+        reader = ipc.RecordBatchFileReader(result)
+        table = reader.read_all()
+
+        # Print schema for debugging
+        print(f"OHLC IPC schema: {table.schema}")
+        print(f"OHLC IPC row count: {len(table):,}")
+
+        # Validate we have rows
+        assert len(table) > 0, "Expected option data rows"
+
+        # Same validations as parquet
+        expected_columns = [
+            "ms_of_day",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "count",
+            "date",
+            "root",
+            "expiration",
+            "strike",
+            "right",
+        ]
+        assert table.column_names == expected_columns
+
+    def test_format_consistency_quote(self, option_client):
+        """Test that parquet and IPC formats produce equivalent results for quote endpoint."""
+
+        # Get parquet result
+        parquet_request = HistOptionBulkRequest(
+            root="AAPL", date=20231110, exp=20231117, interval=900000, endpoint="quote", return_format="parquet"
+        )
+        parquet_result = option_client.get_data(parquet_request)
+
+        # Get IPC result
+        ipc_request = HistOptionBulkRequest(
+            root="AAPL", date=20231110, exp=20231117, interval=900000, endpoint="quote", return_format="ipc"
+        )
+        ipc_result = option_client.get_data(ipc_request)
+
+        # Both should return BytesIO
+        assert isinstance(parquet_result, io.BytesIO)
+        assert isinstance(ipc_result, io.BytesIO)
+
+        # Both should have data
+        parquet_size = len(parquet_result.getvalue())
+        ipc_size = len(ipc_result.getvalue())
+
+        assert parquet_size > 0, "Parquet result should have data"
+        assert ipc_size > 0, "IPC result should have data"
+
+        print(f"Quote format comparison - Parquet: {parquet_size:,} bytes, IPC: {ipc_size:,} bytes")
+
+        # Read both formats
+        parquet_result.seek(0)
+        ipc_result.seek(0)
+
+        parquet_table = pq.read_table(parquet_result)
+
+        reader = ipc.RecordBatchFileReader(ipc_result)
+        ipc_table = reader.read_all()
+
+        # Compare schemas
+        assert parquet_table.schema.equals(ipc_table.schema), "Schemas should be identical between formats"
+
+        # Compare row counts
+        assert len(parquet_table) == len(ipc_table), "Row counts should be identical between formats"
+
+        print(f"Quote formats verified - {len(parquet_table):,} rows with identical schemas")
+
+    def test_format_consistency_ohlc(self, option_client):
+        """Test that parquet and IPC formats produce equivalent results for OHLC endpoint."""
+
+        # Get parquet result
+        parquet_request = HistOptionBulkRequest(
+            root="AAPL", date=20231103, exp=20231103, interval=900000, endpoint="ohlc", return_format="parquet"
+        )
+        parquet_result = option_client.get_data(parquet_request)
+
+        # Get IPC result
+        ipc_request = HistOptionBulkRequest(
+            root="AAPL", date=20231103, exp=20231103, interval=900000, endpoint="ohlc", return_format="ipc"
+        )
+        ipc_result = option_client.get_data(ipc_request)
+
+        # Read both formats
+        parquet_result.seek(0)
+        ipc_result.seek(0)
+
+        parquet_table = pq.read_table(parquet_result)
+
+        reader = ipc.RecordBatchFileReader(ipc_result)
+        ipc_table = reader.read_all()
+
+        # Compare schemas and row counts
+        assert parquet_table.schema.equals(ipc_table.schema), "Schemas should be identical between formats"
+        assert len(parquet_table) == len(ipc_table), "Row counts should be identical between formats"
+
+        print(f"OHLC formats verified - {len(parquet_table):,} rows with identical schemas")
+
+    def test_data_content_validation(self, option_client):
+        """Test detailed data content validation."""
+        request = HistOptionBulkRequest(
+            root="AAPL", date=20231110, exp=20231117, interval=900000, endpoint="quote", return_format="parquet"
+        )
+
+        result = option_client.get_data(request)
+        result.seek(0)
+        table = pq.read_table(result)
+
+        # Validate we have multiple contracts (strikes and rights)
+        strikes = set(table.column("strike").to_pylist())
+        rights = set(table.column("right").to_pylist())
+
+        print(f"Unique strikes: {sorted(strikes)}")
+        print(f"Unique rights: {sorted(rights)}")
+
+        # Should have multiple strike prices
+        assert len(strikes) > 1, f"Expected multiple strikes, got {strikes}"
+
+        # Should have calls, puts, and underlying
+        assert "C" in rights, "Expected call options"
+        assert "P" in rights, "Expected put options"
+        assert "U" in rights, "Expected underlying stock data"
+
+        # Validate expirations
+        expirations = set(table.column("expiration").to_pylist())
+        print(f"Unique expirations: {sorted(expirations)}")
+
+        # Should have expiration date and 0 (for underlying)
+        assert 20231117 in expirations, "Expected expiration 20231117"
+        assert 0 in expirations, "Expected 0 expiration for underlying"
+
+        # Validate timestamp ranges (should be trading hours)
+        timestamps = table.column("ms_of_day").to_pylist()
+        min_time = min(timestamps)
+        max_time = max(timestamps)
+
+        print(f"Time range: {min_time} to {max_time}")
+
+        # Should be within reasonable trading hours (9:30 AM to 4:00 PM EST)
+        # 9:30 AM = 34200000 ms, 4:00 PM = 57600000 ms
+        assert min_time >= 34200000, f"Minimum time {min_time} seems too early"
+        assert max_time <= 57600000, f"Maximum time {max_time} seems too late"
 
     def test_request_validation(self, option_client):
         """Test that request validation works properly."""
-        with option_client:
-            # Test invalid return format
-            with pytest.raises(ValueError):
-                HistOptionBulkRequest(root="AAPL", date=20231110, return_format="invalid")
 
-            # Test invalid date format
-            with pytest.raises(ValueError):
-                HistOptionBulkRequest(
-                    root="AAPL",
-                    date=2023111,  # 7 digits
-                )
+        # Test invalid return format
+        with pytest.raises(ValueError, match="return_format must be"):
+            HistOptionBulkRequest(root="AAPL", date=20231110, return_format="invalid")
+
+        # Test invalid endpoint
+        with pytest.raises(ValueError, match="endpoint must be"):
+            HistOptionBulkRequest(root="AAPL", date=20231110, endpoint="invalid")
+
+        # Test invalid date format
+        with pytest.raises(ValueError, match="Date must be 8 digits"):
+            HistOptionBulkRequest(
+                root="AAPL",
+                date=2023111,  # 7 digits instead of 8
+            )

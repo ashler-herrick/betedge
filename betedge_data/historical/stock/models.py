@@ -8,6 +8,7 @@ from datetime import datetime
 
 from betedge_data.common.interface import IRequest
 
+
 class HistStockRequest(BaseModel, IRequest):
     """Request parameters for historical option data."""
 
@@ -85,6 +86,8 @@ class HistStockRequest(BaseModel, IRequest):
         interval_str = interval_ms_to_string(self.interval)
 
         # Generate object key following the established pattern
-        object_key = f"historical-stock/{self.endpoint}/{self.root}/{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}/{interval_str}/data.{self.return_format}"
+        base_path = f"historical-stock/{self.endpoint}/{self.root}"
+        date_path = f"{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}"
+        object_key = f"{base_path}/{date_path}/{interval_str}/data.{self.return_format}"
 
         return object_key

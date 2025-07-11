@@ -14,6 +14,7 @@ from betedge_data.common.models import (
     Header,
 )
 
+
 @pytest.mark.unit
 class TestHistoricalOptionClient:
     """Unit tests for HistoricalOptionClient."""

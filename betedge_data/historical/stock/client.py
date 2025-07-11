@@ -1,21 +1,21 @@
 import io
 import logging
-from decimal import Decimal
 from urllib.parse import urlencode
 
-import orjson
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.ipc as ipc
 
 from betedge_data.common.http import get_http_client
 from betedge_data.common.models import StockThetaDataResponse, TICK_SCHEMAS
+from betedge_data.common.exceptions import NoDataAvailableError
 from betedge_data.historical.config import HistoricalClientConfig
 from betedge_data.historical.stock.models import HistStockRequest
 
 logger = logging.getLogger(__name__)
 
 from betedge_data.common.interface import IClient
+
 
 class HistoricalStockClient(IClient):
     """Client for fetching historical stock quote data from ThetaData API."""
@@ -26,14 +26,6 @@ class HistoricalStockClient(IClient):
         """
         self.config = HistoricalClientConfig()
         self.http_client = get_http_client()
-
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit with cleanup."""
-        pass
 
     def get_data(self, request: HistStockRequest) -> io.BytesIO:
         """
@@ -66,9 +58,12 @@ class HistoricalStockClient(IClient):
             else:
                 raise ValueError(f"Unsupported return_format: {request.return_format}")
 
+        except NoDataAvailableError:
+            logger.info(f"No data available for {request.root} on {request.date}")
+            raise  # Re-raise to be handled by service layer
         except Exception as e:
             logger.error(f"Stock data processing failed for {request.root}: {str(e)}")
-            logger.debug(f"Stock data processing error details", exc_info=True)
+            logger.debug("Stock data processing error details", exc_info=True)
             raise RuntimeError(f"Stock data processing failed: {e}") from e
 
     def _fetch_stock_data(self, request: HistStockRequest) -> StockThetaDataResponse:
@@ -93,6 +88,8 @@ class HistoricalStockClient(IClient):
             logger.info(f"Collected {len(result.response)} stock records")
             return result
 
+        except NoDataAvailableError:
+            raise  # Let NoDataAvailableError propagate
         except Exception as e:
             logger.error(f"Error fetching stock data: {e}")
             raise RuntimeError(f"Stock data fetch failed: {e}") from e
@@ -264,8 +261,3 @@ class HistoricalStockClient(IClient):
         except Exception as e:
             logger.error(f"Failed to convert stock data to IPC: {str(e)}")
             raise RuntimeError(f"IPC conversion failed: {e}") from e
-
-    def close(self) -> None:
-        """Close the HTTP client."""
-        if hasattr(self, "http_client"):
-            self.http_client.close()
