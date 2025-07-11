@@ -2,6 +2,7 @@
 Historical stock data configuration.
 """
 
+import os
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
@@ -9,7 +10,10 @@ from pydantic_settings import BaseSettings
 class HistoricalClientConfig(BaseSettings):
     """Configuration for historical stock data client."""
 
-    base_url: str = Field(default="http://127.0.0.1:25510/v2", description="ThetaData API base URL")
+    base_url: str = Field(
+        default_factory=lambda: os.getenv("THETA_BASE_URL", "http://127.0.0.1:25510/v2"),
+        description="ThetaData API base URL (set THETA_BASE_URL env var to override)"
+    )
     timeout: int = Field(default=60, description="HTTP request timeout in seconds")
     retry_attempts: int = Field(default=3, description="Number of retry attempts for failed requests")
     retry_delay: float = Field(default=1.0, description="Delay between retry attempts in seconds")

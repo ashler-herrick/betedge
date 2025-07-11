@@ -10,7 +10,6 @@ import pyarrow.parquet as pq
 from betedge_data.alternative.earnings.models import EarningsRequest, EarningsRecord
 from betedge_data.common.interface import IClient
 from betedge_data.common.http import get_http_client
-from betedge_data.common.exceptions import NoDataAvailableError
 from betedge_data.manager.utils import generate_trading_date_list
 
 logger = logging.getLogger(__name__)

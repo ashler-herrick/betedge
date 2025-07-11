@@ -17,7 +17,6 @@ Requirements:
 
 import logging
 import time
-from datetime import datetime
 from typing import Dict, List, Tuple
 
 import pytest

@@ -3,7 +3,7 @@ Unit tests for DataProcessingService unified processing pattern.
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock, patch
 from uuid import uuid4
 import io
 

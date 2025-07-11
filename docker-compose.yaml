@@ -55,8 +55,8 @@ services:
       MINIO_BUCKET: betedge-data
       MINIO_SECURE: "false"
       MINIO_REGION: us-east-1
-      # ThetaTerminal Configuration
-      THETA_BASE_URL: "http://127.0.0.1:25510/v2"
+      # ThetaTerminal Configuration  
+      THETA_BASE_URL: "http://172.18.0.1:25510/v2"
       # Application Configuration
       FORCE_REFRESH: "false"
     env_file:

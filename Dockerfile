@@ -29,9 +29,6 @@ COPY pyproject.toml uv.lock README.md ./
 COPY betedge_data/ ./betedge_data/
 COPY ThetaTerminal.jar ./
 
-# Copy Rust parser built wheel
-COPY rust_parser/target/wheels/ ./rust_parser/target/wheels/
-
 # Copy supervisor configuration
 COPY supervisord.conf /etc/supervisor/supervisord.conf
 

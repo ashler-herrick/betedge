@@ -11,10 +11,10 @@ from betedge_data.common.models import StockThetaDataResponse, TICK_SCHEMAS
 from betedge_data.common.exceptions import NoDataAvailableError
 from betedge_data.historical.config import HistoricalClientConfig
 from betedge_data.historical.stock.models import HistStockRequest
+from betedge_data.common.interface import IClient
+
 
 logger = logging.getLogger(__name__)
-
-from betedge_data.common.interface import IClient
 
 
 class HistoricalStockClient(IClient):

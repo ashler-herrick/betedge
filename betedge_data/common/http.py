@@ -239,6 +239,16 @@ class PaginatedHTTPClient:
 
                     raise NoDataAvailableError(f"No data available: {response_text}")
 
+            # Check for ThetaData "Wrong IP" response (status 476)
+            if response.status_code == 476:
+                error_msg = (
+                    "ThetaData IP mismatch error (HTTP 476). "
+                    "This occurs when requests come from different IP addresses. "
+                    "In Docker environments, ensure THETA_BASE_URL uses 'host.docker.internal' "
+                    "to route all requests through the same network interface."
+                )
+                raise RuntimeError(error_msg)
+
             response.raise_for_status()
             return response
         except httpx.HTTPStatusError:
