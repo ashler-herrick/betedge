@@ -2,7 +2,8 @@
 Data models for historical option data.
 """
 
-from pydantic import BaseModel, Field, field_validator
+from typing import Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
 from betedge_data.historical.utils import interval_ms_to_string, expiration_to_string
 from datetime import datetime
 
@@ -12,21 +13,27 @@ from betedge_data.common.interface import IRequest
 class HistOptionBulkRequest(BaseModel, IRequest):
     """Request parameters for historical option data."""
 
-    # Required fields (no defaults)
+    # Required fields
     root: str = Field(..., description="Security symbol")
-    date: int = Field(..., description="The date in YYYYMMDD")
+    
+    # Date fields (one of these must be provided)
+    date: Optional[int] = Field(None, description="The date in YYYYMMDD format (for quote/ohlc/single-day EOD)")
+    yearmo: Optional[int] = Field(None, description="Year-month in YYYYMM format for EOD data")
 
     # Optional fields (with defaults)
     interval: int = Field(default=900_000, ge=0, description="Interval in milliseconds")
     return_format: str = Field(default="parquet", description="Return format: parquet or ipc")
-    endpoint: str = Field(default="quote", description="Endpoint to map to: options include 'quote', 'ohlc'")
+    endpoint: str = Field(default="quote", description="Endpoint to map to: options include 'quote', 'eod'")
     # Default, non configurable
     exp: int = 0
 
     @field_validator("date")
     @classmethod
-    def validate_date_format(cls, v: int) -> int:
+    def validate_date_format(cls, v: Optional[int]) -> Optional[int]:
         """Validate date is in YYYYMMDD format."""
+        if v is None:
+            return v
+            
         date_str = str(v)
         if len(date_str) != 8:
             raise ValueError(f"Date must be 8 digits (YYYYMMDD), got {v}")
@@ -46,6 +53,31 @@ class HistOptionBulkRequest(BaseModel, IRequest):
         except ValueError as e:
             raise ValueError(f"Invalid date format {v}: {e}")
 
+        return v
+
+    @field_validator("yearmo")
+    @classmethod  
+    def validate_yearmo(cls, v: Optional[int]) -> Optional[int]:
+        """Validate yearmo is in YYYYMM format."""
+        if v is None:
+            return v
+            
+        yearmo_str = str(v)
+        if len(yearmo_str) != 6:
+            raise ValueError(f"Yearmo must be 6 digits (YYYYMM), got {v}")
+            
+        try:
+            year = int(yearmo_str[:4])
+            month = int(yearmo_str[4:6])
+            
+            if not (1 <= month <= 12):
+                raise ValueError(f"Invalid month in yearmo {v}")
+            if not (2020 <= year <= 2030):
+                raise ValueError(f"Year must be between 2020-2030, got {year}")
+                
+        except ValueError as e:
+            raise ValueError(f"Invalid yearmo format {v}: {e}")
+            
         return v
 
     @field_validator("interval")
@@ -68,25 +100,78 @@ class HistOptionBulkRequest(BaseModel, IRequest):
     @classmethod
     def validate_endpoint(cls, v: str) -> str:
         """Validate endpoint is supported."""
-        if v not in ["quote", "ohlc"]:
-            raise ValueError(f"endpoint must be 'quote' or 'ohlc', got '{v}'")
+        if v not in ["quote", "ohlc", "eod"]:
+            raise ValueError(f"endpoint must be 'quote', 'ohlc', or 'eod', got '{v}'")
         return v
 
+    @model_validator(mode='after')
+    def validate_date_or_yearmo(self) -> 'HistOptionBulkRequest':
+        """Ensure either date or yearmo is provided, and validate consistency with endpoint."""
+        if self.date is None and self.yearmo is None:
+            raise ValueError("Either 'date' or 'yearmo' must be provided")
+        
+        if self.date is not None and self.yearmo is not None:
+            raise ValueError("Provide either 'date' or 'yearmo', not both")
+        
+        # For EOD endpoint, prefer yearmo but allow date
+        if self.endpoint == "eod" and self.date is not None:
+            # Extract yearmo from date for consistency
+            date_str = str(self.date)
+            extracted_yearmo = int(date_str[:6])
+            if self.yearmo is None:
+                self.yearmo = extracted_yearmo
+        
+        # For non-EOD endpoints, require date
+        if self.endpoint in ["quote", "ohlc"] and self.date is None:
+            raise ValueError(f"Endpoint '{self.endpoint}' requires 'date' field")
+            
+        return self
+
+    def get_processing_yearmo(self) -> int:
+        """Get the year-month for processing (from date or yearmo field)."""
+        if self.yearmo is not None:
+            return self.yearmo
+        elif self.date is not None:
+            date_str = str(self.date)
+            return int(date_str[:6])
+        else:
+            raise ValueError("No date or yearmo available")
+
+    def get_date_range_for_eod(self) -> tuple[int, int]:
+        """Get start and end dates for EOD processing (full month)."""
+        yearmo = self.get_processing_yearmo()
+        year = yearmo // 100
+        month = yearmo % 100
+        
+        start_date = int(f"{year}{month:02d}01")
+        
+        # Calculate end date (last day of month)
+        if month == 12:
+            next_month_start = int(f"{year + 1}0101")
+        else:
+            next_month_start = int(f"{year}{month + 1:02d}01")
+        
+        # End date is day before next month starts
+        end_date = next_month_start - 1
+        
+        return start_date, end_date
+
     def generate_object_key(self) -> str:
-        """
-        Generate MinIO object keys for historical option data.
-
-        Returns list of object keys for each date and expiration combination.
-        Format: historical-options/quote/{root}/{year}/{month:02d}/{day:02d}/
-        {interval_str}/{exp_str}/filtered/data.parquet
-
-        Returns:
-            Object key covering all dates and expirations in the request
-        """
-        exp_str = expiration_to_string(self.exp)
-        date_obj = datetime.strptime(str(self.date), "%Y%m%d")
-        interval_str = interval_ms_to_string(self.interval)
-        base_path = f"historical-options/{self.endpoint}/{self.root}"
-        date_path = f"{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}"
-        object_key = f"{base_path}/{date_path}/{interval_str}/{exp_str}/data.{self.return_format}"
-        return object_key
+        """Generate MinIO object keys for historical option data."""
+        if self.endpoint == "eod":
+            # EOD uses monthly aggregation format
+            yearmo = self.get_processing_yearmo()
+            year = yearmo // 100
+            month = yearmo % 100
+            return f"historical-options/eod/{self.root}/{year}/{month:02d}/data.{self.return_format}"
+        else:
+            # Regular quote/ohlc endpoints use daily format with intervals
+            if self.date is None:
+                raise ValueError("Date is required for non-EOD endpoints")
+            exp_str = expiration_to_string(self.exp)
+            date_obj = datetime.strptime(str(self.date), "%Y%m%d")
+            interval_str = interval_ms_to_string(self.interval)
+            base_path = f"historical-options/{self.endpoint}/{self.root}"
+            date_path = f"{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}"
+            object_key = f"{base_path}/{date_path}/{interval_str}/{exp_str}/data.{self.return_format}"
+            return object_key

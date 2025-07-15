@@ -68,7 +68,7 @@ def get_business_week_range(days_back: int = 30) -> Tuple[str, str]:
     return start_date.strftime("%Y%m%d"), end_date.strftime("%Y%m%d")
 
 
-def generate_expected_object_keys(dates: List[int], symbol: str, interval: int) -> List[str]:
+def generate_expected_object_keys(dates: List[int], symbol: str, interval: int, endpoint: str = "quote") -> List[str]:
     """
     Generate expected MinIO object keys using actual request objects.
 
@@ -76,6 +76,7 @@ def generate_expected_object_keys(dates: List[int], symbol: str, interval: int) 
         dates: List of dates as integers in YYYYMMDD format
         symbol: Stock symbol (e.g., 'AAPL')
         interval: Interval in milliseconds
+        endpoint: Endpoint type ("quote" or "ohlc")
 
     Returns:
         List of expected object keys
@@ -88,13 +89,13 @@ def generate_expected_object_keys(dates: List[int], symbol: str, interval: int) 
             root=symbol,
             date=date_int,
             interval=interval,
-            endpoint="quote",
+            endpoint=endpoint,
             return_format="parquet"
         )
         object_key = request.generate_object_key()
         object_keys.append(object_key)
     
-    logger.debug(f"Generated {len(object_keys)} expected object keys using actual request model")
+    logger.debug(f"Generated {len(object_keys)} expected object keys using actual request model for {endpoint} endpoint")
     return object_keys
 
 
@@ -232,13 +233,14 @@ def check_api_health() -> bool:
         return False
 
 
-def make_options_request(start_date: str, end_date: str) -> Dict:
+def make_options_request(start_date: str, end_date: str, endpoint: str = "quote") -> Dict:
     """
     Make historical options API request.
 
     Args:
         start_date: Start date in YYYYMMDD format
         end_date: End date in YYYYMMDD format
+        endpoint: Endpoint type ("quote" or "ohlc")
 
     Returns:
         API response data
@@ -249,6 +251,7 @@ def make_options_request(start_date: str, end_date: str) -> Dict:
         "start_date": start_date,
         "end_date": end_date,
         "interval": TEST_INTERVAL,
+        "endpoint": endpoint,
     }
 
     print("Making API request:")
@@ -256,6 +259,7 @@ def make_options_request(start_date: str, end_date: str) -> Dict:
     print(f"  Symbol: {TEST_SYMBOL}")
     print(f"  Date range: {start_date} to {end_date}")
     print(f"  Interval: {TEST_INTERVAL}ms ({TEST_INTERVAL // 60000}m)")
+    print(f"  Data type: {endpoint}")
     print()
 
     start_time = time.time()
@@ -328,12 +332,13 @@ def validate_response(response_data: Dict, expected_dates: List[str]) -> bool:
     return True
 
 
-def validate_minio_data_with_content(expected_object_keys: List[str]) -> Tuple[bool, Dict]:
+def validate_minio_data_with_content(expected_object_keys: List[str], endpoint: str = "quote") -> Tuple[bool, Dict]:
     """
     Validate that data was written to MinIO storage and download content for validation.
 
     Args:
         expected_object_keys: List of expected object keys in MinIO
+        endpoint: Endpoint type ("quote" or "ohlc") for schema validation
 
     Returns:
         Tuple of (success, validation_results)
@@ -393,7 +398,7 @@ def validate_minio_data_with_content(expected_object_keys: List[str]) -> Tuple[b
                     file_contents.append(file_content)
                     
                     # Validate schema
-                    schema_result = validate_parquet_schema(file_content, "quote")
+                    schema_result = validate_parquet_schema(file_content, endpoint)
                     schema_result["object_key"] = object_key
                     schema_validations.append(schema_result)
                     
@@ -459,6 +464,7 @@ def display_test_summary(
     success: bool,
     total_time: float,
     minio_results: Dict = None,
+    endpoint: str = "quote",
 ) -> None:
     """Display test summary."""
     print("=" * 70)
@@ -470,6 +476,7 @@ def display_test_summary(
     print(f"  Date range: {start_date} to {end_date}")
     print(f"  Expected business days: {len(expected_dates)}")
     print(f"  Business days: {', '.join(expected_dates)}")
+    print(f"  Data type: {endpoint.upper()} option data")
     print("  Storage: S3-compatible object storage (MinIO)")
     print()
 
@@ -537,7 +544,8 @@ def test_aapl_option_week_e2e():
 
     # Step 3: Make options request
     logger.info("Step 3: Making historical options request...")
-    response_data = make_options_request(start_date, end_date)
+    endpoint = "quote"
+    response_data = make_options_request(start_date, end_date, endpoint)
 
     # Step 4: Validate response
     logger.info("Step 4: Validating response...")
@@ -546,10 +554,10 @@ def test_aapl_option_week_e2e():
 
     # Step 5: Validate MinIO data with comprehensive validation
     logger.info("Step 5: Validating MinIO data storage...")
-    expected_object_keys = generate_expected_object_keys(expected_dates_int, TEST_SYMBOL, TEST_INTERVAL)
+    expected_object_keys = generate_expected_object_keys(expected_dates_int, TEST_SYMBOL, TEST_INTERVAL, endpoint)
     logger.info(f"Expected object keys: {expected_object_keys}")
 
-    minio_success, minio_results = validate_minio_data_with_content(expected_object_keys)
+    minio_success, minio_results = validate_minio_data_with_content(expected_object_keys, endpoint)
     logger.info(f"MinIO validation: {'✓ Passed' if minio_success else '✗ Failed'}")
 
     # Step 6: Comprehensive validation checks
@@ -565,7 +573,7 @@ def test_aapl_option_week_e2e():
     # Step 7: Display summary
     total_time = time.time() - total_start_time
     overall_success = response_success and minio_success and schema_success and quality_success
-    display_test_summary(start_date, end_date, expected_dates, overall_success, total_time, minio_results)
+    display_test_summary(start_date, end_date, expected_dates, overall_success, total_time, minio_results, endpoint)
 
     # Step 8: Final assertions for pytest
     assert response_success, "API response validation failed"

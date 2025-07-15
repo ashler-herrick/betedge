@@ -85,7 +85,52 @@ class OHLCTick(BaseModel):
         )
 
 
-Tick = Union[QuoteTick, OHLCTick]
+class EODTick(BaseModel):
+    """End-of-day tick data with comprehensive OHLC and quote information."""
+
+    ms_of_day: int
+    ms_of_day2: int
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
+    count: int
+    bid_size: int
+    bid_exchange: int
+    bid: float
+    bid_condition: int
+    ask_size: int
+    ask_exchange: int
+    ask: float
+    ask_condition: int
+    date: int
+
+    @classmethod
+    def from_array(cls, tick_array: List) -> "EODTick":
+        """Convert API array format to EODTick object."""
+        return cls(
+            ms_of_day=tick_array[0],
+            ms_of_day2=tick_array[1],
+            open=tick_array[2],
+            high=tick_array[3],
+            low=tick_array[4],
+            close=tick_array[5],
+            volume=tick_array[6],
+            count=tick_array[7],
+            bid_size=tick_array[8],
+            bid_exchange=tick_array[9],
+            bid=tick_array[10],
+            bid_condition=tick_array[11],
+            ask_size=tick_array[12],
+            ask_exchange=tick_array[13],
+            ask=tick_array[14],
+            ask_condition=tick_array[15],
+            date=tick_array[16],
+        )
+
+
+Tick = Union[QuoteTick, OHLCTick, EODTick]
 
 
 class ThetaDataResponse(BaseModel):
@@ -126,6 +171,7 @@ class StockThetaDataResponse(ThetaDataResponse):
 TICK_SCHEMAS = {
     "quote": generate_schema_from_model(QuoteTick),
     "ohlc": generate_schema_from_model(OHLCTick),
+    "eod": generate_schema_from_model(EODTick),
 }
 
 # Contract field schema (same for all tick types)

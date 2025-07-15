@@ -244,7 +244,7 @@ class PaginatedHTTPClient:
                 error_msg = (
                     "ThetaData IP mismatch error (HTTP 476). "
                     "This occurs when requests come from different IP addresses. "
-                    "In Docker environments, ensure THETA_BASE_URL uses 'host.docker.internal' "
+                    "In Docker environments, ensure THETA_BASE_URL uses 'http://172.18.0.1:25510/v2' "
                     "to route all requests through the same network interface."
                 )
                 raise RuntimeError(error_msg)

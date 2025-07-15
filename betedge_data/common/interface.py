@@ -12,7 +12,7 @@ class IRequest(ABC):
 
 class IClient(ABC):
     @abstractmethod
-    def get_data(self) -> BytesIO:
+    def get_data(self, request: IRequest) -> BytesIO:
         """
         Returns a file wrapped in a Python BytesIO object.
         """

@@ -44,7 +44,7 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
     root: str = Field(..., description="Option root symbol (e.g., 'AAPL')")
     start_date: str = Field(..., description="Start date in YYYYMMDD format", pattern=r"^\d{8}$")
     end_date: str = Field(..., description="End date in YYYYMMDD format", pattern=r"^\d{8}$")
-    endpoint: str = Field(default="quote", description="Endpoint to map to: options include 'quote', 'ohlc'")
+    endpoint: str = Field(default="quote", description="Endpoint to map to: options include 'quote', 'ohlc', 'eod'")
     interval: int = Field(900_000, description="Interval in milliseconds (default 900000 for 15 minutes)", ge=0)
     return_format: str = Field("parquet", description="Return format for the request, either parquet or ipc.")
     start_time: Optional[int] = Field(None, description="Start time in milliseconds since midnight ET", ge=0)
@@ -72,31 +72,68 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
             raise ValueError("end_date must be >= start_date")
         return v
 
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, v: str) -> str:
+        """Validate endpoint is supported."""
+        if v not in ["quote", "ohlc", "eod"]:
+            raise ValueError(f"endpoint must be 'quote', 'ohlc', or 'eod', got '{v}'")
+        return v
+
     def __init__(self, **data):
         """Initialize and pre-compute the requests list."""
         super().__init__(**data)
         self.requests = self._compute_requests()
 
     def _compute_requests(self) -> List[HistOptionBulkRequest]:
-        """Compute the list of requests for trading days only."""
-        dates = generate_trading_date_list(self.start_date, self.end_date)
-        return [
-            HistOptionBulkRequest(
-                root=self.root,
-                date=date,
-                interval=self.interval,
-                return_format=self.return_format,
-                endpoint=self.endpoint,
-            )
-            for date in dates
-        ]
+        """Compute the list of requests."""
+        if self.endpoint == "eod":
+            # For EOD, create one request per month (due to option data size)
+            start_yearmo = int(self.start_date[:6])  # YYYYMM from YYYYMMDD
+            end_yearmo = int(self.end_date[:6])
+            
+            requests = []
+            current_yearmo = start_yearmo
+            while current_yearmo <= end_yearmo:
+                # Create EOD request using yearmo parameter
+                year = current_yearmo // 100
+                month = current_yearmo % 100
+                requests.append(HistOptionBulkRequest(
+                    root=self.root,
+                    yearmo=current_yearmo,
+                    interval=self.interval,  # Not used for EOD
+                    return_format=self.return_format,
+                    endpoint=self.endpoint,
+                ))
+                # Increment to next month
+                if month == 12:
+                    current_yearmo = (year + 1) * 100 + 1
+                else:
+                    current_yearmo = year * 100 + (month + 1)
+            return requests
+        else:
+            # For regular endpoints, use trading days only
+            dates = generate_trading_date_list(self.start_date, self.end_date)
+            return [
+                HistOptionBulkRequest(
+                    root=self.root,
+                    date=date,
+                    interval=self.interval,
+                    return_format=self.return_format,
+                    endpoint=self.endpoint,
+                )
+                for date in dates
+            ]
 
     def get_subrequests(self) -> List[HistOptionBulkRequest]:
         """
-        Return pre-computed requests for trading days only.
+        Return pre-computed requests.
+
+        For regular endpoints: one request per trading day.
+        For EOD endpoint: one request per month.
 
         Returns:
-            List of HistOptionBulkRequest objects for trading days
+            List of HistOptionBulkRequest objects
         """
         return self.requests
 
@@ -111,7 +148,7 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
     root: str = Field(..., description="Stock symbol (e.g., 'AAPL')")
     start_date: str = Field(..., description="Start date in YYYYMMDD format", pattern=r"^\d{8}$")
     end_date: str = Field(..., description="End date in YYYYMMDD format", pattern=r"^\d{8}$")
-    endpoint: str = Field(default="quote", description="Endpoint to map to: options include 'quote', 'ohlc'")
+    endpoint: str = Field(default="quote", description="Endpoint to map to: options include 'quote', 'ohlc', 'eod'")
     interval: int = Field(60_000, description="Interval in milliseconds (default 60000 for 1 minute)", ge=0)
     return_format: str = Field("parquet", description="Return format for the request, either parquet or ipc.")
     start_time: Optional[int] = Field(None, description="Start time in milliseconds since midnight ET", ge=0)
@@ -130,6 +167,14 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
             raise ValueError(f"Invalid date format: {v}. Expected YYYYMMDD format")
         return v
 
+    @field_validator("endpoint")
+    @classmethod
+    def validate_endpoint(cls, v: str) -> str:
+        """Validate endpoint is supported."""
+        if v not in ["quote", "ohlc", "eod"]:
+            raise ValueError(f"endpoint must be 'quote', 'ohlc', or 'eod', got '{v}'")
+        return v
+
     @field_validator("end_date")
     @classmethod
     def validate_date_range(cls, v, info):
@@ -145,25 +190,46 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
         self.requests = self._compute_requests()
 
     def _compute_requests(self) -> List[HistStockRequest]:
-        """Compute the list of requests for trading days only."""
-        dates = generate_trading_date_list(self.start_date, self.end_date)
-        return [
-            HistStockRequest(
-                root=self.root,
-                date=date,
-                interval=self.interval,
-                return_format=self.return_format,
-                endpoint=self.endpoint,
-            )
-            for date in dates
-        ]
+        """Compute the list of requests."""
+        if self.endpoint == "eod":
+            # For EOD, create one request per year to leverage yearly aggregation
+            start_year = int(self.start_date[:4])
+            end_year = int(self.end_date[:4])
+            
+            requests = []
+            for year in range(start_year, end_year + 1):
+                # Use Jan 1st of each year as the date for EOD requests
+                requests.append(HistStockRequest(
+                    root=self.root,
+                    date=int(f"{year}0101"),
+                    interval=self.interval,  # Not used for EOD but required by model
+                    return_format=self.return_format,
+                    endpoint=self.endpoint,
+                ))
+            return requests
+        else:
+            # For regular endpoints, use trading days only
+            dates = generate_trading_date_list(self.start_date, self.end_date)
+            return [
+                HistStockRequest(
+                    root=self.root,
+                    date=date,
+                    interval=self.interval,
+                    return_format=self.return_format,
+                    endpoint=self.endpoint,
+                )
+                for date in dates
+            ]
 
     def get_subrequests(self) -> List[HistStockRequest]:
         """
-        Return pre-computed requests for trading days only.
+        Return pre-computed requests.
+
+        For regular endpoints: one request per trading day.
+        For EOD endpoint: one request per year.
 
         Returns:
-            List of HistStockRequest objects for trading days
+            List of HistStockRequest objects
         """
         return self.requests
 
@@ -234,3 +300,4 @@ class ExternalEarningsRequest(ExternalBaseRequest):
     def get_client(self):
         """Return EarningsClient instance for this request type."""
         return EarningsClient()
+

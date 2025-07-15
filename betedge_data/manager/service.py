@@ -53,7 +53,10 @@ class DataProcessingService:
                 
                 # Check if file already exists (unless force_refresh is True)
                 if not self.force_refresh and self.publisher.file_exists(object_key):
-                    logger.info(f"File already exists for {getattr(req, 'root', 'unknown')} on {getattr(req, 'date', 'unknown date')} - skipping")
+                    logger.info(
+                        f"File already exists for {getattr(req, 'root', 'unknown')} "
+                        f"on {getattr(req, 'date', 'unknown date')} - skipping"
+                    )
                     continue
 
                 # Use unified client API - all clients have get_data() method
@@ -65,7 +68,8 @@ class DataProcessingService:
                 logger.info(f"Successfully processed and published request for {getattr(req, 'root', 'unknown')}")
             except NoDataAvailableError:
                 logger.info(
-                    f"No data available for {getattr(req, 'root', 'unknown')} on {getattr(req, 'date', 'unknown date')} - skipping file creation"
+                    f"No data available for {getattr(req, 'root', 'unknown')} "
+                    f"on {getattr(req, 'date', 'unknown date')} - skipping file creation"
                 )
                 continue  # Skip to next request without creating empty file
             except Exception as e:

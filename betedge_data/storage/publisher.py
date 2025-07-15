@@ -4,13 +4,11 @@ MinIO publisher for object storage operations.
 
 import io
 import logging
-from typing import Set
 
 from minio import Minio
 from minio.error import S3Error
 
 from betedge_data.storage.config import MinIOConfig
-from betedge_data.manager.models import ExternalBaseRequest
 
 logger = logging.getLogger(__name__)
 
@@ -111,20 +109,6 @@ class MinIOPublisher:
             # Handle any other unexpected errors
             logger.debug(f"Unexpected error checking file existence {object_key}: {e}")
             return False
-
-    def list_existing_files(
-        self,
-        request: ExternalBaseRequest,
-    ) -> Set[str]:
-        """
-        List existing files for given parameters and return set of dates that exist.
-
-        Args:
-            request: Subclass of ExternalBaseRequest
-
-        Returns:
-            Set of dates that already have files
-        """
 
     def delete_file(self, object_path: str) -> bool:
         """
