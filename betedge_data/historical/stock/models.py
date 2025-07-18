@@ -139,6 +139,6 @@ class HistStockRequest(BaseModel, IRequest):
                 raise ValueError("Date is required for non-EOD endpoints")
             date_obj = datetime.strptime(str(self.date), "%Y%m%d")
             interval_str = interval_ms_to_string(self.interval)
-            base_path = f"historical-stock/{self.endpoint}/{self.root}"
+            base_path = f"historical-stock/{self.endpoint}/{interval_str}/{self.root}"
             date_path = f"{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}"
-            return f"{base_path}/{date_path}/{interval_str}/data.{self.return_format}"
+            return f"{base_path}/{date_path}/data.{self.return_format}"

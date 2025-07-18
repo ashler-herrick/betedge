@@ -171,7 +171,7 @@ class HistOptionBulkRequest(BaseModel, IRequest):
             exp_str = expiration_to_string(self.exp)
             date_obj = datetime.strptime(str(self.date), "%Y%m%d")
             interval_str = interval_ms_to_string(self.interval)
-            base_path = f"historical-options/{self.endpoint}/{self.root}"
+            base_path = f"historical-options/{self.endpoint}/{interval_str}/{exp_str}/{self.root}"
             date_path = f"{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}"
-            object_key = f"{base_path}/{date_path}/{interval_str}/{exp_str}/data.{self.return_format}"
+            object_key = f"{base_path}/{date_path}/data.{self.return_format}"
             return object_key
