@@ -27,7 +27,7 @@ def make_ohlc_request() -> Dict:
         "start_date": start_date,
         "end_date": end_date,
         "endpoint": "ohlc",
-        "interval": 450_000,
+        "interval": 4_500_000,
         "return_format": "parquet"
     }
     
@@ -35,7 +35,7 @@ def make_ohlc_request() -> Dict:
     print(f"  Endpoint: POST {API_BASE_URL}/historical/stock")
     print(f"  Symbol: {TEST_SYMBOL}")
     print(f"  Date range: {start_date} to {end_date}")
-    print("  Endpoint: eod")
+    print("  Endpoint: ohlc")
     print("  Format: parquet")
     print()
     
