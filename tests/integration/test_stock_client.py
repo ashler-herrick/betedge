@@ -93,11 +93,11 @@ class TestHistoricalStockClientIntegration:
         # Validate bid/ask data is reasonable
         bid_values = table.column("bid").to_pylist()
         ask_values = table.column("ask").to_pylist()
-        
+
         # Filter out zero values (market closed periods)
         valid_bids = [b for b in bid_values if b > 0]
         valid_asks = [a for a in ask_values if a > 0]
-        
+
         if valid_bids and valid_asks:
             assert min(valid_bids) > 0, "Bid prices should be positive"
             assert min(valid_asks) > 0, "Ask prices should be positive"
@@ -107,13 +107,7 @@ class TestHistoricalStockClientIntegration:
 
     def test_get_data_quote_ipc(self, stock_client):
         """Test get_data with quote endpoint and IPC format."""
-        request = HistStockRequest(
-            root="AAPL", 
-            date=20231110, 
-            interval=60000, 
-            endpoint="quote", 
-            return_format="ipc"
-        )
+        request = HistStockRequest(root="AAPL", date=20231110, interval=60000, endpoint="quote", return_format="ipc")
 
         # Call the method
         result = stock_client.get_data(request)
@@ -158,13 +152,7 @@ class TestHistoricalStockClientIntegration:
 
     def test_get_data_ohlc_parquet(self, stock_client):
         """Test get_data with OHLC endpoint and parquet format."""
-        request = HistStockRequest(
-            root="AAPL", 
-            date=20231103, 
-            interval=60000, 
-            endpoint="ohlc", 
-            return_format="parquet"
-        )
+        request = HistStockRequest(root="AAPL", date=20231103, interval=60000, endpoint="ohlc", return_format="parquet")
 
         # Call the method
         result = stock_client.get_data(request)
@@ -223,37 +211,28 @@ class TestHistoricalStockClientIntegration:
 
         # Validate OHLC relationships (High >= Open,Close,Low; Low <= Open,Close,High)
         ohlc_data = pl.from_arrow(table.select(["open", "high", "low", "close"]))
-        
+
         # Filter out zero/invalid values
         valid_data = ohlc_data.filter(
-            (pl.col("open") > 0) & 
-            (pl.col("high") > 0) & 
-            (pl.col("low") > 0) & 
-            (pl.col("close") > 0)
+            (pl.col("open") > 0) & (pl.col("high") > 0) & (pl.col("low") > 0) & (pl.col("close") > 0)
         )
-        
+
         if len(valid_data) > 0:
             # High should be >= all other prices
             assert (valid_data.select(pl.col("high") >= pl.col("open"))).to_series().all(), "High should be >= Open"
             assert (valid_data.select(pl.col("high") >= pl.col("close"))).to_series().all(), "High should be >= Close"
             assert (valid_data.select(pl.col("high") >= pl.col("low"))).to_series().all(), "High should be >= Low"
-            
-            # Low should be <= all other prices  
+
+            # Low should be <= all other prices
             assert (valid_data.select(pl.col("low") <= pl.col("open"))).to_series().all(), "Low should be <= Open"
             assert (valid_data.select(pl.col("low") <= pl.col("close"))).to_series().all(), "Low should be <= Close"
             assert (valid_data.select(pl.col("low") <= pl.col("high"))).to_series().all(), "Low should be <= High"
-            
+
             print(f"OHLC validation passed for {len(valid_data)} valid records")
 
     def test_get_data_ohlc_ipc(self, stock_client):
         """Test get_data with OHLC endpoint and IPC format."""
-        request = HistStockRequest(
-            root="AAPL", 
-            date=20231103, 
-            interval=60000, 
-            endpoint="ohlc", 
-            return_format="ipc"
-        )
+        request = HistStockRequest(root="AAPL", date=20231103, interval=60000, endpoint="ohlc", return_format="ipc")
 
         # Call the method
         result = stock_client.get_data(request)
@@ -331,7 +310,7 @@ class TestHistoricalStockClientIntegration:
         # Validate schema has all expected fields for EOD endpoint (17 fields)
         expected_columns = [
             "ms_of_day",
-            "ms_of_day2", 
+            "ms_of_day2",
             "open",
             "high",
             "low",
@@ -369,33 +348,30 @@ class TestHistoricalStockClientIntegration:
         # Validate EOD data content (should be ~252 trading days for a year)
         expected_min_rows = 200  # Account for holidays/weekends
         expected_max_rows = 300  # Allow some buffer
-        
+
         row_count = len(table)
         assert expected_min_rows <= row_count <= expected_max_rows, (
             f"Expected {expected_min_rows}-{expected_max_rows} EOD records, got {row_count}"
         )
-        
+
         print(f"EOD records: {row_count} (within expected range)")
 
         # Validate date range (should span 2024)
         dates = table.column("date").to_pylist()
         min_date = min(dates)
         max_date = max(dates)
-        
+
         assert min_date >= 20240101, f"Min date {min_date} should be >= 20240101"
         assert max_date <= 20241231, f"Max date {max_date} should be <= 20241231"
-        
+
         print(f"EOD date range: {min_date} to {max_date}")
 
         # Validate OHLC relationships in EOD data
         ohlc_data = pl.from_arrow(table.select(["open", "high", "low", "close"]))
         valid_data = ohlc_data.filter(
-            (pl.col("open") > 0) & 
-            (pl.col("high") > 0) & 
-            (pl.col("low") > 0) & 
-            (pl.col("close") > 0)
+            (pl.col("open") > 0) & (pl.col("high") > 0) & (pl.col("low") > 0) & (pl.col("close") > 0)
         )
-        
+
         if len(valid_data) > 0:
             assert (valid_data.select(pl.col("high") >= pl.col("open"))).to_series().all(), "High should be >= Open"
             assert (valid_data.select(pl.col("high") >= pl.col("close"))).to_series().all(), "High should be >= Close"
@@ -442,7 +418,7 @@ class TestHistoricalStockClientIntegration:
         # Same validations as parquet (17 field EOD schema)
         expected_columns = [
             "ms_of_day",
-            "ms_of_day2", 
+            "ms_of_day2",
             "open",
             "high",
             "low",
@@ -465,11 +441,11 @@ class TestHistoricalStockClientIntegration:
         dates = table.column("date").to_pylist()
         min_date = min(dates)
         max_date = max(dates)
-        
+
         # Should get full year data despite providing single date
         assert min_date >= 20240101, "Should get full year data starting from Jan 1"
         assert max_date <= 20241231, "Should get full year data ending by Dec 31"
-        
+
         print(f"EOD date extraction test: {min_date} to {max_date} (from input date 20240615)")
 
     def test_format_consistency_quote(self, stock_client):
@@ -477,21 +453,13 @@ class TestHistoricalStockClientIntegration:
 
         # Get parquet result
         parquet_request = HistStockRequest(
-            root="AAPL", 
-            date=20231110, 
-            interval=60000, 
-            endpoint="quote", 
-            return_format="parquet"
+            root="AAPL", date=20231110, interval=60000, endpoint="quote", return_format="parquet"
         )
         parquet_result = stock_client.get_data(parquet_request)
 
         # Get IPC result
         ipc_request = HistStockRequest(
-            root="AAPL", 
-            date=20231110, 
-            interval=60000, 
-            endpoint="quote", 
-            return_format="ipc"
+            root="AAPL", date=20231110, interval=60000, endpoint="quote", return_format="ipc"
         )
         ipc_result = stock_client.get_data(ipc_request)
 
@@ -530,22 +498,12 @@ class TestHistoricalStockClientIntegration:
 
         # Get parquet result
         parquet_request = HistStockRequest(
-            root="AAPL", 
-            date=20231103, 
-            interval=60000, 
-            endpoint="ohlc", 
-            return_format="parquet"
+            root="AAPL", date=20231103, interval=60000, endpoint="ohlc", return_format="parquet"
         )
         parquet_result = stock_client.get_data(parquet_request)
 
         # Get IPC result
-        ipc_request = HistStockRequest(
-            root="AAPL", 
-            date=20231103, 
-            interval=60000, 
-            endpoint="ohlc", 
-            return_format="ipc"
-        )
+        ipc_request = HistStockRequest(root="AAPL", date=20231103, interval=60000, endpoint="ohlc", return_format="ipc")
         ipc_result = stock_client.get_data(ipc_request)
 
         # Read both formats
@@ -567,21 +525,11 @@ class TestHistoricalStockClientIntegration:
         """Test that parquet and IPC formats produce equivalent results for EOD endpoint."""
 
         # Get parquet result (year-based)
-        parquet_request = HistStockRequest(
-            root="AAPL", 
-            year=2024, 
-            endpoint="eod", 
-            return_format="parquet"
-        )
+        parquet_request = HistStockRequest(root="AAPL", year=2024, endpoint="eod", return_format="parquet")
         parquet_result = stock_client.get_data(parquet_request)
 
         # Get IPC result (date-based, should extract same year)
-        ipc_request = HistStockRequest(
-            root="AAPL", 
-            date=20240615, 
-            endpoint="eod", 
-            return_format="ipc"
-        )
+        ipc_request = HistStockRequest(root="AAPL", date=20240615, endpoint="eod", return_format="ipc")
         ipc_result = stock_client.get_data(ipc_request)
 
         # Read both formats
@@ -602,11 +550,7 @@ class TestHistoricalStockClientIntegration:
     def test_data_content_validation(self, stock_client):
         """Test detailed data content validation."""
         request = HistStockRequest(
-            root="AAPL", 
-            date=20231110, 
-            interval=60000, 
-            endpoint="quote", 
-            return_format="parquet"
+            root="AAPL", date=20231110, interval=60000, endpoint="quote", return_format="parquet"
         )
 
         result = stock_client.get_data(request)
@@ -628,7 +572,7 @@ class TestHistoricalStockClientIntegration:
         # Validate bid/ask spread relationships
         bid_values = table.column("bid").to_pylist()
         ask_values = table.column("ask").to_pylist()
-        
+
         # Pair up bid/ask for same timestamps
         valid_spreads = []
         for bid, ask in zip(bid_values, ask_values):
@@ -636,16 +580,16 @@ class TestHistoricalStockClientIntegration:
                 spread = ask - bid
                 valid_spreads.append(spread)
                 assert spread >= 0, f"Ask ({ask}) should be >= Bid ({bid})"
-        
+
         if valid_spreads:
             avg_spread = sum(valid_spreads) / len(valid_spreads)
             print(f"Average bid-ask spread: ${avg_spread:.4f}")
             print(f"Valid spread count: {len(valid_spreads)}")
-        
+
         # Validate sizes are reasonable
         bid_sizes = [s for s in table.column("bid_size").to_pylist() if s > 0]
         ask_sizes = [s for s in table.column("ask_size").to_pylist() if s > 0]
-        
+
         if bid_sizes and ask_sizes:
             print(f"Bid size range: {min(bid_sizes)} - {max(bid_sizes)}")
             print(f"Ask size range: {min(ask_sizes)} - {max(ask_sizes)}")
@@ -681,7 +625,7 @@ class TestHistoricalStockClientIntegration:
         assert eod_year_req.year == 2024
         assert eod_year_req.endpoint == "eod"
 
-        # EOD with date (should extract year)  
+        # EOD with date (should extract year)
         eod_date_req = HistStockRequest(root="AAPL", date=20240615, endpoint="eod")
         assert eod_date_req.date == 20240615
         assert eod_date_req.year == 2024  # Should be auto-extracted
@@ -693,6 +637,6 @@ class TestHistoricalStockClientIntegration:
         assert quote_req.endpoint == "quote"
 
         print("✅ All unified model validation tests passed")
-        
+
         # Verify that stock_client fixture isn't needed for validation tests
         # (this test only validates the model, not the client)

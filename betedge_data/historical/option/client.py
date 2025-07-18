@@ -49,17 +49,17 @@ class HistoricalOptionClient(IClient):
         # Validation
         if not isinstance(request, HistOptionBulkRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
-        
+
         logger.info(f"Starting data fetch for {request.root} endpoint={request.endpoint}")
-        
+
         try:
             # Step 1: Build URL (delegates to pure function)
             url = self._build_url(request)
-            
+
             # Step 2: Fetch data (delegates to pure function)
             option_data = self._fetch_data(url)
             logger.debug(f"Option data fetch complete - {len(option_data.response)} records")
-            
+
             # Step 3: Handle stock data if needed (for non-EOD endpoints)
             if request.endpoint == "eod":
                 # EOD endpoint is standalone, no stock data needed
@@ -70,10 +70,10 @@ class HistoricalOptionClient(IClient):
                 stock_url = self._build_stock_url(request)
                 stock_data = self.stock_client._fetch_data(stock_url)
                 logger.debug(f"Stock data fetch complete - {len(stock_data.response)} records")
-            
-            # Step 4: Convert to Arrow table (delegates to pure function)  
+
+            # Step 4: Convert to Arrow table (delegates to pure function)
             table = self._convert_to_table(option_data, stock_data, request.endpoint)
-            
+
             # Step 5: Serialize to requested format (orchestrate format selection)
             if request.return_format == "parquet":
                 logger.debug(f"Converting to Parquet for {request.root}")
@@ -87,7 +87,7 @@ class HistoricalOptionClient(IClient):
                 return buffer
             else:
                 raise ValueError(f"Unsupported return_format: {request.return_format}")
-                
+
         except NoDataAvailableError:
             logger.info(f"No data available for {request.root}")
             raise
@@ -96,8 +96,9 @@ class HistoricalOptionClient(IClient):
             logger.debug("Data processing error details", exc_info=True)
             raise RuntimeError(f"Data processing failed: {e}") from e
 
-
-    def _convert_to_table(self, option_data: OptionThetaDataResponse, stock_data: Optional[StockThetaDataResponse], endpoint: str) -> pa.Table:
+    def _convert_to_table(
+        self, option_data: OptionThetaDataResponse, stock_data: Optional[StockThetaDataResponse], endpoint: str
+    ) -> pa.Table:
         """Convert option data to Arrow table (pure function)."""
         if endpoint == "eod":
             # For EOD, only process option data (no stock data needed)
@@ -105,14 +106,14 @@ class HistoricalOptionClient(IClient):
         else:
             # For regular endpoints, combine option and stock data
             return self._convert_option_and_stock_to_table(option_data, stock_data, endpoint)
-    
+
     def _convert_option_only_to_table(self, option_data: OptionThetaDataResponse, endpoint: str) -> pa.Table:
         """Convert option-only data to Arrow table (for EOD endpoint)."""
         # Get schema configuration
         schema = TICK_SCHEMAS[endpoint]
-        field_names = schema["field_names"] 
+        field_names = schema["field_names"]
         arrow_types = schema["arrow_types"]
-        
+
         # Extract all option ticks and contract info
         all_option_ticks = []
         contract_info = []
@@ -122,27 +123,38 @@ class HistoricalOptionClient(IClient):
             all_option_ticks.extend(ticks)
             # Repeat contract info for each tick
             contract_info.extend([contract] * len(ticks))
-        
+
         if not all_option_ticks:
             raise RuntimeError("No option data to convert")
-        
+
         # Apply columnar transposition for tick data
         option_columns = list(zip(*all_option_ticks))
-        
+
         # Create tick field arrays
         tick_arrays = []
         for i, (field_name, arrow_type) in enumerate(zip(field_names, arrow_types)):
-            if field_name in ["ms_of_day", "ms_of_day2", "date", "volume", "count", "bid_size", "ask_size", 
-                             "bid_exchange", "ask_exchange", "bid_condition", "ask_condition"]:
+            if field_name in [
+                "ms_of_day",
+                "ms_of_day2",
+                "date",
+                "volume",
+                "count",
+                "bid_size",
+                "ask_size",
+                "bid_exchange",
+                "ask_exchange",
+                "bid_condition",
+                "ask_condition",
+            ]:
                 tick_arrays.append(pa.array([int(x) for x in option_columns[i]], type=arrow_type))
             else:  # float fields
                 tick_arrays.append(pa.array([float(x) for x in option_columns[i]], type=arrow_type))
-        
+
         # Add contract fields
         contract_schema = CONTRACT_SCHEMA
         contract_field_names = contract_schema["field_names"]
         contract_arrow_types = contract_schema["arrow_types"]
-        
+
         contract_arrays = []
         for field_name, arrow_type in zip(contract_field_names, contract_arrow_types):
             if field_name == "root":
@@ -153,14 +165,16 @@ class HistoricalOptionClient(IClient):
                 contract_arrays.append(pa.array([c.strike for c in contract_info], type=arrow_type))
             elif field_name == "right":
                 contract_arrays.append(pa.array([c.right for c in contract_info], type=arrow_type))
-        
+
         # Combine all arrays and field names
         all_arrays = tick_arrays + contract_arrays
         all_field_names = field_names + contract_field_names
-        
+
         return pa.Table.from_arrays(all_arrays, names=all_field_names)
-    
-    def _convert_option_and_stock_to_table(self, option_data: OptionThetaDataResponse, stock_data: StockThetaDataResponse, endpoint: str) -> pa.Table:
+
+    def _convert_option_and_stock_to_table(
+        self, option_data: OptionThetaDataResponse, stock_data: StockThetaDataResponse, endpoint: str
+    ) -> pa.Table:
         """Convert option and stock data to Arrow table (for regular endpoints)."""
         # Use existing flattening logic for backward compatibility
         flattened_data = self._flatten_option_data(option_data, stock_data, endpoint)
@@ -308,15 +322,14 @@ class HistoricalOptionClient(IClient):
         logger.debug(f"Created Arrow table with {total_records} records using {schema_type} schema")
         return table
 
-
     def _fetch_data(self, url: str) -> OptionThetaDataResponse:
         """Fetch option data from URL (pure function, no error handling)."""
         return self.http_client.fetch_paginated(
-            url=url, 
-            response_model=OptionThetaDataResponse, 
+            url=url,
+            response_model=OptionThetaDataResponse,
             stream_response=True,
             item_path="response.item",
-            collect_items=True
+            collect_items=True,
         )
 
     def _build_url(self, request: HistOptionBulkRequest) -> str:
@@ -342,14 +355,11 @@ class HistoricalOptionClient(IClient):
             if request.interval is not None:
                 params["ivl"] = request.interval
             base_url = f"{self.config.base_url}/bulk_hist/option/{request.endpoint}"
-        
+
         return f"{base_url}?{urlencode(params)}"
 
     def _build_stock_url(self, request: HistOptionBulkRequest) -> str:
         """Build stock URL for non-EOD requests (pure function)."""
-        return self.stock_client._build_url(HistStockRequest(
-            root=request.root,
-            date=request.date,
-            interval=request.interval,
-            endpoint=request.endpoint
-        ))
+        return self.stock_client._build_url(
+            HistStockRequest(root=request.root, date=request.date, interval=request.interval, endpoint=request.endpoint)
+        )

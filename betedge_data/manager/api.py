@@ -11,7 +11,6 @@ from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from betedge_data.manager.models import (
@@ -60,15 +59,6 @@ app = FastAPI(
     description="REST API for processing historical options and stock data with date range support",
     version="1.0.0",
     lifespan=lifespan,
-)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure as needed for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 
@@ -168,7 +158,6 @@ async def process_earnings(request: ExternalEarningsRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process earnings request: {str(e)}",
         )
-
 
 
 # Additional utility endpoints

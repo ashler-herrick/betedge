@@ -50,7 +50,7 @@ class DataProcessingService:
             try:
                 # Get the object key for this request
                 object_key = req.generate_object_key()
-                
+
                 # Check if file already exists (unless force_refresh is True)
                 if not self.force_refresh and self.publisher.file_exists(object_key):
                     logger.info(

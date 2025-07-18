@@ -15,7 +15,7 @@ class HistStockRequest(BaseModel, IRequest):
 
     # Required fields
     root: str = Field(..., description="Security symbol")
-    
+
     # Date fields (one of these must be provided)
     date: Optional[int] = Field(None, description="The date in YYYYMMDD format (for quote/ohlc/single-day EOD)")
     year: Optional[int] = Field(None, description="The year for EOD data (alternative to date)")
@@ -31,7 +31,7 @@ class HistStockRequest(BaseModel, IRequest):
         """Validate date is in YYYYMMDD format."""
         if v is None:
             return v
-            
+
         date_str = str(v)
         if len(date_str) != 8:
             raise ValueError(f"Date must be 8 digits (YYYYMMDD), got {v}")
@@ -54,7 +54,7 @@ class HistStockRequest(BaseModel, IRequest):
         return v
 
     @field_validator("year")
-    @classmethod  
+    @classmethod
     def validate_year(cls, v: Optional[int]) -> Optional[int]:
         """Validate year is within reasonable bounds."""
         if v is None:
@@ -63,15 +63,15 @@ class HistStockRequest(BaseModel, IRequest):
             raise ValueError(f"Year must be between 2020-2030, got {v}")
         return v
 
-    @model_validator(mode='after')
-    def validate_date_or_year(self) -> 'HistStockRequest':
+    @model_validator(mode="after")
+    def validate_date_or_year(self) -> "HistStockRequest":
         """Ensure either date or year is provided, and validate consistency with endpoint."""
         if self.date is None and self.year is None:
             raise ValueError("Either 'date' or 'year' must be provided")
-        
+
         if self.date is not None and self.year is not None:
             raise ValueError("Provide either 'date' or 'year', not both")
-        
+
         # For EOD endpoint, prefer year but allow date
         if self.endpoint == "eod" and self.date is not None:
             # Extract year from date for consistency
@@ -79,11 +79,11 @@ class HistStockRequest(BaseModel, IRequest):
             extracted_year = int(date_str[:4])
             if self.year is None:
                 self.year = extracted_year
-        
+
         # For non-EOD endpoints, require date
         if self.endpoint in ["quote", "ohlc"] and self.date is None:
             raise ValueError(f"Endpoint '{self.endpoint}' requires 'date' field")
-            
+
         return self
 
     @field_validator("interval")
@@ -142,5 +142,3 @@ class HistStockRequest(BaseModel, IRequest):
             base_path = f"historical-stock/{self.endpoint}/{self.root}"
             date_path = f"{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}"
             return f"{base_path}/{date_path}/{interval_str}/data.{self.return_format}"
-
-

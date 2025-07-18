@@ -41,20 +41,20 @@ class HistoricalStockClient(IClient):
         # Validation
         if not isinstance(request, HistStockRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
-        
+
         logger.info(f"Starting data fetch for {request.root} endpoint={request.endpoint}")
-        
+
         try:
             # Step 1: Build URL (delegates to pure function)
             url = self._build_url(request)
-            
+
             # Step 2: Fetch data (delegates to pure function)
             stock_data = self._fetch_data(url)
             logger.debug(f"Data fetch complete - {len(stock_data.response)} records")
-            
-            # Step 3: Convert to Arrow table (delegates to pure function)  
+
+            # Step 3: Convert to Arrow table (delegates to pure function)
             table = self._convert_to_table(stock_data, request.endpoint)
-            
+
             # Step 4: Serialize to requested format (orchestrate format selection)
             if request.return_format == "parquet":
                 logger.debug(f"Converting to Parquet for {request.root}")
@@ -68,7 +68,7 @@ class HistoricalStockClient(IClient):
                 return buffer
             else:
                 raise ValueError(f"Unsupported return_format: {request.return_format}")
-                
+
         except NoDataAvailableError:
             logger.info(f"No data available for {request.root}")
             raise
@@ -77,14 +77,10 @@ class HistoricalStockClient(IClient):
             logger.debug("Data processing error details", exc_info=True)
             raise RuntimeError(f"Data processing failed: {e}") from e
 
-
     def _fetch_data(self, url: str) -> StockThetaDataResponse:
         """Fetch stock data from URL (pure function, no error handling)."""
         return self.http_client.fetch_paginated(
-            url=url, 
-            response_model=StockThetaDataResponse, 
-            stream_response=False, 
-            collect_items=True
+            url=url, response_model=StockThetaDataResponse, stream_response=False, collect_items=True
         )
 
     def _build_url(self, request: HistStockRequest) -> str:
@@ -107,34 +103,44 @@ class HistoricalStockClient(IClient):
                 "ivl": request.interval,
             }
             base_url = f"{self.config.base_url}/hist/stock/{request.endpoint}"
-        
+
         return f"{base_url}?{urlencode(params)}"
 
     def _convert_to_table(self, stock_data: StockThetaDataResponse, endpoint: str) -> pa.Table:
         """Convert stock data to Arrow table (pure function)."""
         # Get schema configuration
         schema = TICK_SCHEMAS[endpoint]
-        field_names = schema["field_names"] 
+        field_names = schema["field_names"]
         arrow_types = schema["arrow_types"]
-        
+
         response_data = stock_data.response
         if not response_data:
             raise RuntimeError("No stock data to convert")
-        
+
         # Apply columnar transposition
         stock_columns = list(zip(*response_data))
-        
+
         # Create typed arrays
         arrays = []
         for i, (field_name, arrow_type) in enumerate(zip(field_names, arrow_types)):
-            if field_name in ["ms_of_day", "ms_of_day2", "date", "volume", "count", "bid_size", "ask_size", 
-                             "bid_exchange", "ask_exchange", "bid_condition", "ask_condition"]:
+            if field_name in [
+                "ms_of_day",
+                "ms_of_day2",
+                "date",
+                "volume",
+                "count",
+                "bid_size",
+                "ask_size",
+                "bid_exchange",
+                "ask_exchange",
+                "bid_condition",
+                "ask_condition",
+            ]:
                 arrays.append(pa.array([int(x) for x in stock_columns[i]], type=arrow_type))
             else:  # float fields
                 arrays.append(pa.array([float(x) for x in stock_columns[i]], type=arrow_type))
-        
-        return pa.Table.from_arrays(arrays, names=field_names)
 
+        return pa.Table.from_arrays(arrays, names=field_names)
 
     def _write_parquet(self, table: pa.Table) -> io.BytesIO:
         """Write Arrow table to Parquet format (pure function)."""

@@ -60,18 +60,17 @@ class EarningsClient(IClient):
                 end_date = datetime(request.year + 1, 1, 1) - timedelta(days=1)
             else:
                 end_date = datetime(request.year, request.month + 1, 1) - timedelta(days=1)
-            
+
             # Convert to YYYYMMDD format for generate_trading_date_list
             start_date_str = start_date.strftime("%Y%m%d")
             end_date_str = end_date.strftime("%Y%m%d")
-            
+
             # Get trading dates as integers, then convert to YYYY-MM-DD format for API
             trading_dates_int = generate_trading_date_list(start_date_str, end_date_str)
             trading_dates = [
-                datetime.strptime(str(date_int), "%Y%m%d").strftime("%Y-%m-%d")
-                for date_int in trading_dates_int
+                datetime.strptime(str(date_int), "%Y%m%d").strftime("%Y-%m-%d") for date_int in trading_dates_int
             ]
-            
+
             logger.info(f"Generated {len(trading_dates)} trading dates for {request.year}-{request.month:02d}")
 
             # Fetch earnings data for all dates
@@ -102,10 +101,8 @@ class EarningsClient(IClient):
 
             if failed_dates:
                 failed_preview = failed_dates[:5]
-                ellipsis = '...' if len(failed_dates) > 5 else ''
-                logger.warning(
-                    f"Failed to fetch data for {len(failed_dates)} dates: {failed_preview}{ellipsis}"
-                )
+                ellipsis = "..." if len(failed_dates) > 5 else ""
+                logger.warning(f"Failed to fetch data for {len(failed_dates)} dates: {failed_preview}{ellipsis}")
 
             if not all_records:
                 logger.error(f"No earnings data found for {request.year}-{request.month:02d}")
@@ -121,7 +118,6 @@ class EarningsClient(IClient):
             logger.debug("Monthly earnings fetch error details", exc_info=True)
             raise RuntimeError(f"Monthly earnings data fetch failed: {e}") from e
 
-
     def _fetch_daily_earnings(self, date_str: str) -> List[EarningsRecord]:
         """
         Fetch earnings data for a specific date.
@@ -134,11 +130,7 @@ class EarningsClient(IClient):
         """
         try:
             # Use shared HTTP client's internal httpx client for the request
-            response = self.client.client.get(
-                self.base_url,
-                params={"date": date_str},
-                headers=self.headers
-            )
+            response = self.client.client.get(self.base_url, params={"date": date_str}, headers=self.headers)
             response.raise_for_status()
 
             data = response.json()

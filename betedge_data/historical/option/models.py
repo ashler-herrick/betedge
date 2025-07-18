@@ -15,7 +15,7 @@ class HistOptionBulkRequest(BaseModel, IRequest):
 
     # Required fields
     root: str = Field(..., description="Security symbol")
-    
+
     # Date fields (one of these must be provided)
     date: Optional[int] = Field(None, description="The date in YYYYMMDD format (for quote/ohlc/single-day EOD)")
     yearmo: Optional[int] = Field(None, description="Year-month in YYYYMM format for EOD data")
@@ -33,7 +33,7 @@ class HistOptionBulkRequest(BaseModel, IRequest):
         """Validate date is in YYYYMMDD format."""
         if v is None:
             return v
-            
+
         date_str = str(v)
         if len(date_str) != 8:
             raise ValueError(f"Date must be 8 digits (YYYYMMDD), got {v}")
@@ -56,28 +56,28 @@ class HistOptionBulkRequest(BaseModel, IRequest):
         return v
 
     @field_validator("yearmo")
-    @classmethod  
+    @classmethod
     def validate_yearmo(cls, v: Optional[int]) -> Optional[int]:
         """Validate yearmo is in YYYYMM format."""
         if v is None:
             return v
-            
+
         yearmo_str = str(v)
         if len(yearmo_str) != 6:
             raise ValueError(f"Yearmo must be 6 digits (YYYYMM), got {v}")
-            
+
         try:
             year = int(yearmo_str[:4])
             month = int(yearmo_str[4:6])
-            
+
             if not (1 <= month <= 12):
                 raise ValueError(f"Invalid month in yearmo {v}")
             if not (2020 <= year <= 2030):
                 raise ValueError(f"Year must be between 2020-2030, got {year}")
-                
+
         except ValueError as e:
             raise ValueError(f"Invalid yearmo format {v}: {e}")
-            
+
         return v
 
     @field_validator("interval")
@@ -104,15 +104,15 @@ class HistOptionBulkRequest(BaseModel, IRequest):
             raise ValueError(f"endpoint must be 'quote', 'ohlc', or 'eod', got '{v}'")
         return v
 
-    @model_validator(mode='after')
-    def validate_date_or_yearmo(self) -> 'HistOptionBulkRequest':
+    @model_validator(mode="after")
+    def validate_date_or_yearmo(self) -> "HistOptionBulkRequest":
         """Ensure either date or yearmo is provided, and validate consistency with endpoint."""
         if self.date is None and self.yearmo is None:
             raise ValueError("Either 'date' or 'yearmo' must be provided")
-        
+
         if self.date is not None and self.yearmo is not None:
             raise ValueError("Provide either 'date' or 'yearmo', not both")
-        
+
         # For EOD endpoint, prefer yearmo but allow date
         if self.endpoint == "eod" and self.date is not None:
             # Extract yearmo from date for consistency
@@ -120,11 +120,11 @@ class HistOptionBulkRequest(BaseModel, IRequest):
             extracted_yearmo = int(date_str[:6])
             if self.yearmo is None:
                 self.yearmo = extracted_yearmo
-        
+
         # For non-EOD endpoints, require date
         if self.endpoint in ["quote", "ohlc"] and self.date is None:
             raise ValueError(f"Endpoint '{self.endpoint}' requires 'date' field")
-            
+
         return self
 
     def get_processing_yearmo(self) -> int:
@@ -142,18 +142,18 @@ class HistOptionBulkRequest(BaseModel, IRequest):
         yearmo = self.get_processing_yearmo()
         year = yearmo // 100
         month = yearmo % 100
-        
+
         start_date = int(f"{year}{month:02d}01")
-        
+
         # Calculate end date (last day of month)
         if month == 12:
             next_month_start = int(f"{year + 1}0101")
         else:
             next_month_start = int(f"{year}{month + 1:02d}01")
-        
+
         # End date is day before next month starts
         end_date = next_month_start - 1
-        
+
         return start_date, end_date
 
     def generate_object_key(self) -> str:

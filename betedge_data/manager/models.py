@@ -49,7 +49,7 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
     return_format: str = Field("parquet", description="Return format for the request, either parquet or ipc.")
     start_time: Optional[int] = Field(None, description="Start time in milliseconds since midnight ET", ge=0)
     end_time: Optional[int] = Field(None, description="End time in milliseconds since midnight ET", ge=0)
-    
+
     # Pre-computed requests attribute
     requests: List[HistOptionBulkRequest] = Field(default_factory=list, init=False, repr=False)
 
@@ -91,20 +91,22 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
             # For EOD, create one request per month (due to option data size)
             start_yearmo = int(self.start_date[:6])  # YYYYMM from YYYYMMDD
             end_yearmo = int(self.end_date[:6])
-            
+
             requests = []
             current_yearmo = start_yearmo
             while current_yearmo <= end_yearmo:
                 # Create EOD request using yearmo parameter
                 year = current_yearmo // 100
                 month = current_yearmo % 100
-                requests.append(HistOptionBulkRequest(
-                    root=self.root,
-                    yearmo=current_yearmo,
-                    interval=self.interval,  # Not used for EOD
-                    return_format=self.return_format,
-                    endpoint=self.endpoint,
-                ))
+                requests.append(
+                    HistOptionBulkRequest(
+                        root=self.root,
+                        yearmo=current_yearmo,
+                        interval=self.interval,  # Not used for EOD
+                        return_format=self.return_format,
+                        endpoint=self.endpoint,
+                    )
+                )
                 # Increment to next month
                 if month == 12:
                     current_yearmo = (year + 1) * 100 + 1
@@ -153,7 +155,7 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
     return_format: str = Field("parquet", description="Return format for the request, either parquet or ipc.")
     start_time: Optional[int] = Field(None, description="Start time in milliseconds since midnight ET", ge=0)
     end_time: Optional[int] = Field(None, description="End time in milliseconds since midnight ET", ge=0)
-    
+
     # Pre-computed requests attribute
     requests: List[HistStockRequest] = Field(default_factory=list, init=False, repr=False)
 
@@ -195,17 +197,19 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
             # For EOD, create one request per year to leverage yearly aggregation
             start_year = int(self.start_date[:4])
             end_year = int(self.end_date[:4])
-            
+
             requests = []
             for year in range(start_year, end_year + 1):
                 # Use Jan 1st of each year as the date for EOD requests
-                requests.append(HistStockRequest(
-                    root=self.root,
-                    date=int(f"{year}0101"),
-                    interval=self.interval,  # Not used for EOD but required by model
-                    return_format=self.return_format,
-                    endpoint=self.endpoint,
-                ))
+                requests.append(
+                    HistStockRequest(
+                        root=self.root,
+                        date=int(f"{year}0101"),
+                        interval=self.interval,  # Not used for EOD but required by model
+                        return_format=self.return_format,
+                        endpoint=self.endpoint,
+                    )
+                )
             return requests
         else:
             # For regular endpoints, use trading days only
@@ -244,7 +248,7 @@ class ExternalEarningsRequest(ExternalBaseRequest):
     start_date: str = Field(..., description="Start date in YYYYMM format", pattern=r"^\d{6}$")
     end_date: str = Field(..., description="End date in YYYYMM format", pattern=r"^\d{6}$")
     return_format: str = Field("parquet", description="Return format (currently only parquet supported)")
-    
+
     # Pre-computed requests attribute
     requests: List[EarningsRequest] = Field(default_factory=list, init=False, repr=False)
 
@@ -283,10 +287,7 @@ class ExternalEarningsRequest(ExternalBaseRequest):
     def _compute_requests(self) -> List[EarningsRequest]:
         """Compute the list of requests."""
         dates = generate_month_list(self.start_date, self.end_date)
-        return [
-            EarningsRequest(year=date[0], month=date[1], return_format=self.return_format) 
-            for date in dates
-        ]
+        return [EarningsRequest(year=date[0], month=date[1], return_format=self.return_format) for date in dates]
 
     def get_subrequests(self) -> List[EarningsRequest]:
         """
@@ -300,4 +301,3 @@ class ExternalEarningsRequest(ExternalBaseRequest):
     def get_client(self):
         """Return EarningsClient instance for this request type."""
         return EarningsClient()
-

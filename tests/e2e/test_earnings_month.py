@@ -38,7 +38,6 @@ logger = logging.getLogger(__name__)
 pytestmark = pytest.mark.e2e
 
 
-
 # Test configuration
 API_BASE_URL = "http://localhost:8000"
 REQUEST_TIMEOUT = 180  # 3 minutes timeout for API request
@@ -69,16 +68,12 @@ def generate_expected_object_keys(start_date: str, end_date: str) -> List[str]:
         List of expected object keys
     """
     # Use actual ExternalEarningsRequest to generate object keys
-    external_request = ExternalEarningsRequest(
-        start_date=start_date,
-        end_date=end_date,
-        return_format="parquet"
-    )
-    
+    external_request = ExternalEarningsRequest(start_date=start_date, end_date=end_date, return_format="parquet")
+
     # Get the subrequests and generate object keys
     subrequests = external_request.get_subrequests()
     object_keys = [request.generate_object_key() for request in subrequests]
-    
+
     logger.debug(f"Generated {len(object_keys)} expected object keys for {start_date} to {end_date}: {object_keys}")
     return object_keys
 
@@ -86,27 +81,35 @@ def generate_expected_object_keys(start_date: str, end_date: str) -> List[str]:
 def validate_parquet_schema(file_content: bytes) -> Dict:
     """
     Validate Parquet file schema against expected earnings structure.
-    
+
     Args:
         file_content: Raw Parquet file content as bytes
-        
+
     Returns:
         Dict with validation results
     """
     try:
         # Read Parquet file
         table = pq.read_table(pa.BufferReader(file_content))
-        
+
         # Expected earnings schema fields
         expected_fields = [
-            "date", "symbol", "name", "time", "eps", "eps_forecast", 
-            "surprise_pct", "market_cap", "fiscal_quarter_ending", "num_estimates"
+            "date",
+            "symbol",
+            "name",
+            "time",
+            "eps",
+            "eps_forecast",
+            "surprise_pct",
+            "market_cap",
+            "fiscal_quarter_ending",
+            "num_estimates",
         ]
-        
+
         # Validate schema
         actual_fields = table.schema.names
         schema_valid = set(actual_fields) == set(expected_fields)
-        
+
         return {
             "schema_valid": schema_valid,
             "expected_fields": expected_fields,
@@ -115,30 +118,26 @@ def validate_parquet_schema(file_content: bytes) -> Dict:
             "extra_fields": list(set(actual_fields) - set(expected_fields)),
             "row_count": len(table),
             "column_count": len(actual_fields),
-            "file_size_bytes": len(file_content)
+            "file_size_bytes": len(file_content),
         }
     except Exception as e:
-        return {
-            "schema_valid": False,
-            "error": str(e),
-            "file_size_bytes": len(file_content)
-        }
+        return {"schema_valid": False, "error": str(e), "file_size_bytes": len(file_content)}
 
 
 def validate_data_quality(file_content: bytes) -> Dict:
     """
     Validate earnings data quality and realistic ranges.
-    
+
     Args:
         file_content: Raw Parquet file content as bytes
-        
+
     Returns:
         Dict with data quality results
     """
     try:
         # Read Parquet file using polars directly
         df = pl.read_parquet(pa.BufferReader(file_content))
-        
+
         quality_checks = {
             "total_rows": df.height,
             "non_null_rows": df.height - df.null_count().sum_horizontal().item(),
@@ -149,65 +148,66 @@ def validate_data_quality(file_content: bytes) -> Dict:
             "market_cap_ranges_realistic": True,
             "unique_symbols": 0,
             "unique_dates": 0,
-            "data_errors": []
+            "data_errors": [],
         }
-        
+
         if df.height > 0:
             # Check for earnings data presence
-            eps_count = df.filter(pl.col('eps').is_not_null()).height
+            eps_count = df.filter(pl.col("eps").is_not_null()).height
             quality_checks["has_earnings_data"] = eps_count > 0
-            
+
             # Check symbols
-            if 'symbol' in df.columns:
-                unique_symbols = df.filter(pl.col('symbol').is_not_null()).select('symbol').n_unique()
+            if "symbol" in df.columns:
+                unique_symbols = df.filter(pl.col("symbol").is_not_null()).select("symbol").n_unique()
                 quality_checks["unique_symbols"] = unique_symbols
-                
+
                 # Check for empty symbols
-                empty_symbols = df.filter(pl.col('symbol').str.len_chars() == 0).height
+                empty_symbols = df.filter(pl.col("symbol").str.len_chars() == 0).height
                 if empty_symbols > 0:
                     quality_checks["has_valid_symbols"] = False
                     quality_checks["data_errors"].append(f"Found {empty_symbols} empty symbols")
-            
+
             # Check dates
-            if 'date' in df.columns:
-                unique_dates = df.filter(pl.col('date').is_not_null()).select('date').n_unique()
+            if "date" in df.columns:
+                unique_dates = df.filter(pl.col("date").is_not_null()).select("date").n_unique()
                 quality_checks["unique_dates"] = unique_dates
-                
+
                 # Basic date format validation
-                invalid_dates = df.filter(pl.col('date').str.len_chars() != 10).height
+                invalid_dates = df.filter(pl.col("date").str.len_chars() != 10).height
                 if invalid_dates > 0:
                     quality_checks["has_valid_dates"] = False
                     quality_checks["data_errors"].append(f"Found {invalid_dates} invalid date formats")
-            
+
             # Check EPS ranges
-            if 'eps' in df.columns:
-                eps_values = df.filter(pl.col('eps').is_not_null()).select('eps')
+            if "eps" in df.columns:
+                eps_values = df.filter(pl.col("eps").is_not_null()).select("eps")
                 if eps_values.height > 0:
                     eps_min = eps_values.min().item()
                     eps_max = eps_values.max().item()
                     # EPS typically ranges from -50 to +50
                     if not (-50 <= eps_min and eps_max <= 50):
                         quality_checks["eps_ranges_realistic"] = False
-                        quality_checks["data_errors"].append(f"EPS values outside realistic range: {eps_min:.2f} to {eps_max:.2f}")
-            
+                        quality_checks["data_errors"].append(
+                            f"EPS values outside realistic range: {eps_min:.2f} to {eps_max:.2f}"
+                        )
+
             # Check market cap ranges
-            if 'market_cap' in df.columns:
-                market_cap_values = df.filter(pl.col('market_cap').is_not_null()).select('market_cap')
+            if "market_cap" in df.columns:
+                market_cap_values = df.filter(pl.col("market_cap").is_not_null()).select("market_cap")
                 if market_cap_values.height > 0:
                     cap_min = market_cap_values.min().item()
                     cap_max = market_cap_values.max().item()
                     # Market cap typically ranges from millions to trillions
                     if not (1_000_000 <= cap_min and cap_max <= 10_000_000_000_000):
                         quality_checks["market_cap_ranges_realistic"] = False
-                        quality_checks["data_errors"].append(f"Market cap values outside realistic range: {cap_min:,} to {cap_max:,}")
-        
+                        quality_checks["data_errors"].append(
+                            f"Market cap values outside realistic range: {cap_min:,} to {cap_max:,}"
+                        )
+
         return quality_checks
-        
+
     except Exception as e:
-        return {
-            "total_rows": 0,
-            "data_errors": [f"Failed to validate data quality: {str(e)}"]
-        }
+        return {"total_rows": 0, "data_errors": [f"Failed to validate data quality: {str(e)}"]}
 
 
 def validate_minio_data_with_content(expected_object_keys: List[str]) -> Tuple[bool, Dict]:
@@ -260,7 +260,7 @@ def validate_minio_data_with_content(expected_object_keys: List[str]) -> Tuple[b
             file_contents = []
             schema_validations = []
             quality_validations = []
-            
+
             for object_key in expected_object_keys:
                 try:
                     # Check if object exists and get its info
@@ -273,26 +273,30 @@ def validate_minio_data_with_content(expected_object_keys: List[str]) -> Tuple[b
                     response = minio_client.get_object(config.bucket, object_key)
                     file_content = response.read()
                     file_contents.append(file_content)
-                    
+
                     # Validate schema
                     schema_result = validate_parquet_schema(file_content)
                     schema_result["object_key"] = object_key
                     schema_validations.append(schema_result)
-                    
+
                     # Validate data quality
                     quality_result = validate_data_quality(file_content)
                     quality_result["object_key"] = object_key
                     quality_validations.append(quality_result)
 
-                    file_details.append({
-                        "object_key": object_key, 
-                        "size": file_size, 
-                        "last_modified": stat.last_modified,
-                        "schema_valid": schema_result["schema_valid"],
-                        "row_count": quality_result.get("total_rows", 0)
-                    })
+                    file_details.append(
+                        {
+                            "object_key": object_key,
+                            "size": file_size,
+                            "last_modified": stat.last_modified,
+                            "schema_valid": schema_result["schema_valid"],
+                            "row_count": quality_result.get("total_rows", 0),
+                        }
+                    )
 
-                    print(f"✓ Found & validated: {object_key} ({file_size} bytes, {quality_result.get('total_rows', 0)} rows)")
+                    print(
+                        f"✓ Found & validated: {object_key} ({file_size} bytes, {quality_result.get('total_rows', 0)} rows)"
+                    )
                     if not schema_result["schema_valid"]:
                         print(f"  ⚠️  Schema validation failed: {schema_result.get('error', 'Unknown error')}")
 
@@ -305,14 +309,16 @@ def validate_minio_data_with_content(expected_object_keys: List[str]) -> Tuple[b
                         print(f"✗ Error checking {object_key}: {e}")
                         file_contents.append(None)
 
-            validation_results.update({
-                "files_found": files_found, 
-                "file_details": file_details, 
-                "file_contents": file_contents,
-                "schema_validations": schema_validations,
-                "quality_validations": quality_validations,
-                "total_size": total_size
-            })
+            validation_results.update(
+                {
+                    "files_found": files_found,
+                    "file_details": file_details,
+                    "file_contents": file_contents,
+                    "schema_validations": schema_validations,
+                    "quality_validations": quality_validations,
+                    "total_size": total_size,
+                }
+            )
 
             # If we found all expected files, we're done
             if files_found == len(expected_object_keys):
@@ -539,10 +545,10 @@ def test_earnings_month_e2e():
     # Step 6: Comprehensive validation checks
     schema_validations = minio_results.get("schema_validations", [])
     quality_validations = minio_results.get("quality_validations", [])
-    
+
     schema_success = all(result.get("schema_valid", False) for result in schema_validations)
     quality_success = all(result.get("total_rows", 0) > 0 for result in quality_validations)
-    
+
     logger.info(f"Schema validation: {'✓ Passed' if schema_success else '✗ Failed'}")
     logger.info(f"Data quality validation: {'✓ Passed' if quality_success else '✗ Failed'}")
 
@@ -553,9 +559,15 @@ def test_earnings_month_e2e():
 
     # Step 8: Final assertions for pytest
     assert response_success, "API response validation failed"
-    assert minio_success, f"MinIO validation failed: found {minio_results.get('files_found', 0)}/{minio_results.get('files_expected', 0)} files"
-    assert schema_success, f"Schema validation failed: {[r.get('error', 'Unknown') for r in schema_validations if not r.get('schema_valid', True)]}"
-    assert quality_success, f"Data quality validation failed: {[r.get('data_errors', []) for r in quality_validations if r.get('total_rows', 0) == 0]}"
+    assert minio_success, (
+        f"MinIO validation failed: found {minio_results.get('files_found', 0)}/{minio_results.get('files_expected', 0)} files"
+    )
+    assert schema_success, (
+        f"Schema validation failed: {[r.get('error', 'Unknown') for r in schema_validations if not r.get('schema_valid', True)]}"
+    )
+    assert quality_success, (
+        f"Data quality validation failed: {[r.get('data_errors', []) for r in quality_validations if r.get('total_rows', 0) == 0]}"
+    )
 
     # Only log success if all assertions pass
     if overall_success:

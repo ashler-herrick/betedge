@@ -16,7 +16,6 @@ from betedge_data.manager.models import (
 from betedge_data.manager.utils import generate_month_list
 
 
-
 @pytest.mark.unit
 class TestDataProcessingServiceUnified:
     """Test unified processing pattern for DataProcessingService."""
@@ -33,7 +32,7 @@ class TestDataProcessingServiceUnified:
     @pytest.fixture
     def service(self, mock_publisher):
         """Create a DataProcessingService for testing."""
-        with patch('betedge_data.manager.service.MinIOPublisher', return_value=mock_publisher):
+        with patch("betedge_data.manager.service.MinIOPublisher", return_value=mock_publisher):
             service = DataProcessingService(force_refresh=False)
             return service
 
@@ -41,18 +40,22 @@ class TestDataProcessingServiceUnified:
     def mock_option_request(self):
         """Create a mock ExternalHistoricalOptionRequest."""
         request = Mock()
-        
+
         # Create mock subrequests with generate_object_key method
         mock_subrequest1 = Mock()
-        mock_subrequest1.generate_object_key.return_value = "historical-options/quote/AAPL/2024/01/02/15m/all/data.parquet"
+        mock_subrequest1.generate_object_key.return_value = (
+            "historical-options/quote/AAPL/2024/01/02/15m/all/data.parquet"
+        )
         mock_subrequest1.root = "AAPL"
         mock_subrequest1.date = 20240102
-        
+
         mock_subrequest2 = Mock()
-        mock_subrequest2.generate_object_key.return_value = "historical-options/quote/AAPL/2024/01/03/15m/all/data.parquet"
+        mock_subrequest2.generate_object_key.return_value = (
+            "historical-options/quote/AAPL/2024/01/03/15m/all/data.parquet"
+        )
         mock_subrequest2.root = "AAPL"
         mock_subrequest2.date = 20240103
-        
+
         request.get_subrequests.return_value = [mock_subrequest1, mock_subrequest2]
 
         # Mock the client
@@ -103,10 +106,10 @@ class TestDataProcessingServiceUnified:
         # Verify the request's methods were called
         mock_option_request.get_subrequests.assert_called_once()
         mock_option_request.get_client.assert_called_once()
-        
+
         # Verify file existence was checked for each subrequest
         assert mock_publisher.file_exists.call_count == 2
-        
+
         # Verify publisher.publish was called for each subrequest
         assert mock_publisher.publish.call_count == 2
 
@@ -190,12 +193,12 @@ class TestDataProcessingServicePublishing:
         mock_req1.generate_object_key.return_value = "test/path/req1.parquet"
         mock_req1.root = "TEST"
         mock_req1.date = 20240101
-        
+
         mock_req2 = Mock()
         mock_req2.generate_object_key.return_value = "test/path/req2.parquet"
         mock_req2.root = "TEST"
         mock_req2.date = 20240102
-        
+
         request.get_subrequests.return_value = [mock_req1, mock_req2]
 
         # Mock client with data
@@ -229,16 +232,16 @@ class TestDataProcessingServicePublishing:
         """Test that existing files are skipped when force_refresh=False."""
         # Set file_exists to return True for the first file
         service_with_publisher.publisher.file_exists.side_effect = [True, False]
-        
+
         request_id = uuid4()
         await service_with_publisher.process_request(mock_request_with_object_key, request_id)
 
         # Verify file_exists was called for both files
         assert service_with_publisher.publisher.file_exists.call_count == 2
-        
+
         # Verify only one file was processed (the one that doesn't exist)
         assert service_with_publisher.publisher.publish.call_count == 1
-        
+
         # Verify get_data was only called once (for the non-existing file)
         mock_client = mock_request_with_object_key.get_client.return_value
         assert mock_client.get_data.call_count == 1
@@ -248,15 +251,15 @@ class TestDataProcessingServicePublishing:
         # Create service with force_refresh=True
         with patch("betedge_data.manager.service.MinIOPublisher", return_value=mock_publisher):
             service = DataProcessingService(force_refresh=True)
-        
+
         # Set file_exists to return True for all files
         mock_publisher.file_exists.return_value = True
-        
+
         request_id = uuid4()
         await service.process_request(mock_request_with_object_key, request_id)
 
         # Verify file_exists was NOT called when force_refresh=True
         assert mock_publisher.file_exists.call_count == 0
-        
+
         # Verify all files were processed despite existing
         assert mock_publisher.publish.call_count == 2

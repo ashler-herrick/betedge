@@ -12,7 +12,7 @@ class HistoricalClientConfig(BaseSettings):
 
     base_url: str = Field(
         default_factory=lambda: os.getenv("THETA_BASE_URL", "http://127.0.0.1:25510/v2"),
-        description="ThetaData API base URL (set THETA_BASE_URL env var to override)"
+        description="ThetaData API base URL (set THETA_BASE_URL env var to override)",
     )
     timeout: int = Field(default=60, description="HTTP request timeout in seconds")
     retry_attempts: int = Field(default=3, description="Number of retry attempts for failed requests")
