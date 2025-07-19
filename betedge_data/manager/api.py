@@ -160,26 +160,6 @@ async def process_earnings(request: ExternalEarningsRequest):
         )
 
 
-# Additional utility endpoints
-
-
-@app.get("/config")
-async def get_configuration():
-    """Get current service configuration (non-sensitive fields only)."""
-    return {
-        "message": "Configuration endpoint available for historical data service",
-        "storage_type": "MinIO S3-compatible object storage",
-        "storage_patterns": {
-            "options": "historical-options/{symbol}/{year}/{month}/{day}/{filename}.parquet",
-            "stocks": "historical-stock/{symbol}/{year}/{month}/{day}/{filename}.parquet",
-            "earnings": "earnings/{year}/{month}/earnings-{year}-{month}.parquet",
-        },
-    }
-
-
-# Storage utility endpoints removed - not compatible with simplified service
-
-
 if __name__ == "__main__":
     import uvicorn
 
