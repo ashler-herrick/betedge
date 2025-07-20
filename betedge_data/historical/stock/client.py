@@ -42,7 +42,7 @@ class HistoricalStockClient(IClient):
         if not isinstance(request, HistStockRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
 
-        logger.info(f"Starting data fetch for {request.root} endpoint={request.endpoint}")
+        logger.info(f"Starting data fetch for {request.root} schema={request.schema}")
 
         try:
             # Step 1: Build URL (delegates to pure function)
@@ -53,7 +53,7 @@ class HistoricalStockClient(IClient):
             logger.debug(f"Data fetch complete - {len(stock_data.response)} records")
 
             # Step 3: Convert to Arrow table (delegates to pure function)
-            table = self._convert_to_table(stock_data, request.endpoint)
+            table = self._convert_to_table(stock_data, request.schema)
 
             # Step 4: Serialize to requested format (orchestrate format selection)
             if request.return_format == "parquet":
@@ -85,7 +85,7 @@ class HistoricalStockClient(IClient):
 
     def _build_url(self, request: HistStockRequest) -> str:
         """Build URL for ThetaData historical stock endpoint (pure function)."""
-        if request.endpoint == "eod":
+        if request.schema == "eod":
             # EOD endpoint uses year range
             start_date, end_date = request.get_date_range_for_eod()
             params = {
@@ -102,7 +102,7 @@ class HistoricalStockClient(IClient):
                 "end_date": request.date,
                 "ivl": request.interval,
             }
-            base_url = f"{self.config.base_url}/hist/stock/{request.endpoint}"
+            base_url = f"{self.config.base_url}/hist/stock/{request.schema}"
 
         return f"{base_url}?{urlencode(params)}"
 

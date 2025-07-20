@@ -17,13 +17,14 @@ class HistOptionBulkRequest(BaseModel, IRequest):
     root: str = Field(..., description="Security symbol")
 
     # Date fields (one of these must be provided)
-    date: Optional[int] = Field(None, description="The date in YYYYMMDD format (for quote/ohlc/single-day EOD)")
+    date: Optional[int] = Field(None, description="The date in YYYYMMDD format (for quote/single-day EOD)")
     yearmo: Optional[int] = Field(None, description="Year-month in YYYYMM format for EOD data")
-
+    schema: str = Field(..., description="Data schema type: options include 'quote', 'eod'")
+    
     # Optional fields (with defaults)
     interval: int = Field(default=900_000, ge=0, description="Interval in milliseconds")
     return_format: str = Field(default="parquet", description="Return format: parquet or ipc")
-    endpoint: str = Field(default="quote", description="Endpoint to map to: options include 'quote', 'eod'")
+
     # Default, non configurable
     exp: int = 0
 
@@ -96,34 +97,34 @@ class HistOptionBulkRequest(BaseModel, IRequest):
             raise ValueError(f"return_format must be 'parquet' or 'ipc', got '{v}'")
         return v
 
-    @field_validator("endpoint")
+    @field_validator("schema")
     @classmethod
-    def validate_endpoint(cls, v: str) -> str:
-        """Validate endpoint is supported."""
+    def validate_schema(cls, v: str) -> str:
+        """Validate schema is supported."""
         if v not in ["quote", "ohlc", "eod"]:
-            raise ValueError(f"endpoint must be 'quote', 'ohlc', or 'eod', got '{v}'")
+            raise ValueError(f"schema must be 'quote', 'ohlc', or 'eod', got '{v}'")
         return v
 
     @model_validator(mode="after")
     def validate_date_or_yearmo(self) -> "HistOptionBulkRequest":
-        """Ensure either date or yearmo is provided, and validate consistency with endpoint."""
+        """Ensure either date or yearmo is provided, and validate consistency with schema."""
         if self.date is None and self.yearmo is None:
             raise ValueError("Either 'date' or 'yearmo' must be provided")
 
         if self.date is not None and self.yearmo is not None:
             raise ValueError("Provide either 'date' or 'yearmo', not both")
 
-        # For EOD endpoint, prefer yearmo but allow date
-        if self.endpoint == "eod" and self.date is not None:
+        # For EOD schema, prefer yearmo but allow date
+        if self.schema == "eod" and self.date is not None:
             # Extract yearmo from date for consistency
             date_str = str(self.date)
             extracted_yearmo = int(date_str[:6])
             if self.yearmo is None:
                 self.yearmo = extracted_yearmo
 
-        # For non-EOD endpoints, require date
-        if self.endpoint in ["quote", "ohlc"] and self.date is None:
-            raise ValueError(f"Endpoint '{self.endpoint}' requires 'date' field")
+        # For non-EOD schemas, require date
+        if self.schema in ["quote", "ohlc"] and self.date is None:
+            raise ValueError(f"Schema '{self.schema}' requires 'date' field")
 
         return self
 
@@ -158,7 +159,7 @@ class HistOptionBulkRequest(BaseModel, IRequest):
 
     def generate_object_key(self) -> str:
         """Generate MinIO object keys for historical option data."""
-        if self.endpoint == "eod":
+        if self.schema == "eod":
             # EOD uses monthly aggregation format
             yearmo = self.get_processing_yearmo()
             year = yearmo // 100
@@ -171,7 +172,7 @@ class HistOptionBulkRequest(BaseModel, IRequest):
             exp_str = expiration_to_string(self.exp)
             date_obj = datetime.strptime(str(self.date), "%Y%m%d")
             interval_str = interval_ms_to_string(self.interval)
-            base_path = f"historical-options/{self.endpoint}/{interval_str}/{exp_str}/{self.root}"
+            base_path = f"historical-options/{self.schema}/{interval_str}/{exp_str}/{self.root}"
             date_path = f"{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}"
             object_key = f"{base_path}/{date_path}/data.{self.return_format}"
             return object_key

@@ -50,7 +50,7 @@ class HistoricalOptionClient(IClient):
         if not isinstance(request, HistOptionBulkRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
 
-        logger.info(f"Starting data fetch for {request.root} endpoint={request.endpoint}")
+        logger.info(f"Starting data fetch for {request.root} schema={request.schema}")
 
         try:
             # Step 1: Build URL (delegates to pure function)
@@ -61,7 +61,7 @@ class HistoricalOptionClient(IClient):
             logger.debug(f"Option data fetch complete - {len(option_data.response)} records")
 
             # Step 3: Handle stock data if needed (for non-EOD endpoints)
-            if request.endpoint == "eod":
+            if request.schema == "eod":
                 # EOD endpoint is standalone, no stock data needed
                 stock_data = None
                 logger.debug("EOD endpoint - skipping stock data fetch")
@@ -72,7 +72,7 @@ class HistoricalOptionClient(IClient):
                 logger.debug(f"Stock data fetch complete - {len(stock_data.response)} records")
 
             # Step 4: Convert to Arrow table (delegates to pure function)
-            table = self._convert_to_table(option_data, stock_data, request.endpoint)
+            table = self._convert_to_table(option_data, stock_data, request.schema)
 
             # Step 5: Serialize to requested format (orchestrate format selection)
             if request.return_format == "parquet":
@@ -334,7 +334,7 @@ class HistoricalOptionClient(IClient):
 
     def _build_url(self, request: HistOptionBulkRequest) -> str:
         """Build URL for ThetaData option endpoint (pure function)."""
-        if request.endpoint == "eod":
+        if request.schema == "eod":
             # EOD endpoint uses month range
             start_date, end_date = request.get_date_range_for_eod()
             params = {
@@ -354,12 +354,12 @@ class HistoricalOptionClient(IClient):
             }
             if request.interval is not None:
                 params["ivl"] = request.interval
-            base_url = f"{self.config.base_url}/bulk_hist/option/{request.endpoint}"
+            base_url = f"{self.config.base_url}/bulk_hist/option/{request.schema}"
 
         return f"{base_url}?{urlencode(params)}"
 
     def _build_stock_url(self, request: HistOptionBulkRequest) -> str:
         """Build stock URL for non-EOD requests (pure function)."""
         return self.stock_client._build_url(
-            HistStockRequest(root=request.root, date=request.date, interval=request.interval, endpoint=request.endpoint)
+            HistStockRequest(root=request.root, date=request.date, interval=request.interval, schema=request.schema)
         )

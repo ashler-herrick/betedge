@@ -44,7 +44,7 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
     root: str = Field(..., description="Option root symbol (e.g., 'AAPL')")
     start_date: str = Field(..., description="Start date in YYYYMMDD format", pattern=r"^\d{8}$")
     end_date: str = Field(..., description="End date in YYYYMMDD format", pattern=r"^\d{8}$")
-    endpoint: str = Field(default="quote", description="Endpoint to map to: options include 'quote', 'ohlc', 'eod'")
+    schema: str = Field(default="quote", description="Data schema type: options include 'quote', 'eod'")
     interval: int = Field(900_000, description="Interval in milliseconds (default 900000 for 15 minutes)", ge=0)
     return_format: str = Field("parquet", description="Return format for the request, either parquet or ipc.")
     start_time: Optional[int] = Field(None, description="Start time in milliseconds since midnight ET", ge=0)
@@ -72,12 +72,12 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
             raise ValueError("end_date must be >= start_date")
         return v
 
-    @field_validator("endpoint")
+    @field_validator("schema")
     @classmethod
-    def validate_endpoint(cls, v: str) -> str:
-        """Validate endpoint is supported."""
-        if v not in ["quote", "ohlc", "eod"]:
-            raise ValueError(f"endpoint must be 'quote', 'ohlc', or 'eod', got '{v}'")
+    def validate_schema(cls, v: str) -> str:
+        """Validate schema is supported."""
+        if v not in ["quote", "eod"]:
+            raise ValueError(f"schema must be 'quote', 'ohlc', or 'eod', got '{v}'")
         return v
 
     def __init__(self, **data):
@@ -87,7 +87,7 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
 
     def _compute_requests(self) -> List[HistOptionBulkRequest]:
         """Compute the list of requests."""
-        if self.endpoint == "eod":
+        if self.schema == "eod":
             # For EOD, create one request per month (due to option data size)
             start_yearmo = int(self.start_date[:6])  # YYYYMM from YYYYMMDD
             end_yearmo = int(self.end_date[:6])
@@ -104,7 +104,7 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
                         yearmo=current_yearmo,
                         interval=self.interval,  # Not used for EOD
                         return_format=self.return_format,
-                        endpoint=self.endpoint,
+                        schema=self.schema,
                     )
                 )
                 # Increment to next month
@@ -122,7 +122,7 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
                     date=date,
                     interval=self.interval,
                     return_format=self.return_format,
-                    endpoint=self.endpoint,
+                    schema=self.schema,
                 )
                 for date in dates
             ]
@@ -150,7 +150,7 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
     root: str = Field(..., description="Stock symbol (e.g., 'AAPL')")
     start_date: str = Field(..., description="Start date in YYYYMMDD format", pattern=r"^\d{8}$")
     end_date: str = Field(..., description="End date in YYYYMMDD format", pattern=r"^\d{8}$")
-    endpoint: str = Field(default="quote", description="Endpoint to map to: options include 'quote', 'ohlc', 'eod'")
+    schema: str = Field(default="quote", description="Data schema type: options include 'quote', 'ohlc', 'eod'")
     interval: int = Field(60_000, description="Interval in milliseconds (default 60000 for 1 minute)", ge=0)
     return_format: str = Field("parquet", description="Return format for the request, either parquet or ipc.")
     start_time: Optional[int] = Field(None, description="Start time in milliseconds since midnight ET", ge=0)
@@ -169,12 +169,12 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
             raise ValueError(f"Invalid date format: {v}. Expected YYYYMMDD format")
         return v
 
-    @field_validator("endpoint")
+    @field_validator("schema")
     @classmethod
-    def validate_endpoint(cls, v: str) -> str:
-        """Validate endpoint is supported."""
+    def validate_schema(cls, v: str) -> str:
+        """Validate schema is supported."""
         if v not in ["quote", "ohlc", "eod"]:
-            raise ValueError(f"endpoint must be 'quote', 'ohlc', or 'eod', got '{v}'")
+            raise ValueError(f"schema must be 'quote', 'ohlc', or 'eod', got '{v}'")
         return v
 
     @field_validator("end_date")
@@ -193,7 +193,7 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
 
     def _compute_requests(self) -> List[HistStockRequest]:
         """Compute the list of requests."""
-        if self.endpoint == "eod":
+        if self.schema == "eod":
             # For EOD, create one request per year to leverage yearly aggregation
             start_year = int(self.start_date[:4])
             end_year = int(self.end_date[:4])
@@ -207,7 +207,7 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
                         date=int(f"{year}0101"),
                         interval=self.interval,  # Not used for EOD but required by model
                         return_format=self.return_format,
-                        endpoint=self.endpoint,
+                        schema=self.schema,
                     )
                 )
             return requests
@@ -220,7 +220,7 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
                     date=date,
                     interval=self.interval,
                     return_format=self.return_format,
-                    endpoint=self.endpoint,
+                    schema=self.schema,
                 )
                 for date in dates
             ]

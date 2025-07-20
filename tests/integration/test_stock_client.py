@@ -32,7 +32,7 @@ class TestHistoricalStockClientIntegration:
             root="AAPL",
             date=20231110,
             interval=60000,  # 1 minute
-            endpoint="quote",
+            schema="quote",
             return_format="parquet",
         )
 
@@ -107,7 +107,7 @@ class TestHistoricalStockClientIntegration:
 
     def test_get_data_quote_ipc(self, stock_client):
         """Test get_data with quote endpoint and IPC format."""
-        request = HistStockRequest(root="AAPL", date=20231110, interval=60000, endpoint="quote", return_format="ipc")
+        request = HistStockRequest(root="AAPL", date=20231110, interval=60000, schema="quote", return_format="ipc")
 
         # Call the method
         result = stock_client.get_data(request)
@@ -152,7 +152,7 @@ class TestHistoricalStockClientIntegration:
 
     def test_get_data_ohlc_parquet(self, stock_client):
         """Test get_data with OHLC endpoint and parquet format."""
-        request = HistStockRequest(root="AAPL", date=20231103, interval=60000, endpoint="ohlc", return_format="parquet")
+        request = HistStockRequest(root="AAPL", date=20231103, interval=60000, schema="ohlc", return_format="parquet")
 
         # Call the method
         result = stock_client.get_data(request)
@@ -232,7 +232,7 @@ class TestHistoricalStockClientIntegration:
 
     def test_get_data_ohlc_ipc(self, stock_client):
         """Test get_data with OHLC endpoint and IPC format."""
-        request = HistStockRequest(root="AAPL", date=20231103, interval=60000, endpoint="ohlc", return_format="ipc")
+        request = HistStockRequest(root="AAPL", date=20231103, interval=60000, schema="ohlc", return_format="ipc")
 
         # Call the method
         result = stock_client.get_data(request)
@@ -278,7 +278,7 @@ class TestHistoricalStockClientIntegration:
         request = HistStockRequest(
             root="AAPL",
             year=2024,
-            endpoint="eod",
+            schema="eod",
             return_format="parquet",
         )
 
@@ -386,7 +386,7 @@ class TestHistoricalStockClientIntegration:
         request = HistStockRequest(
             root="AAPL",
             date=20240615,  # Should extract year 2024 for EOD processing
-            endpoint="eod",
+            schema="eod",
             return_format="ipc",
         )
 
@@ -453,13 +453,13 @@ class TestHistoricalStockClientIntegration:
 
         # Get parquet result
         parquet_request = HistStockRequest(
-            root="AAPL", date=20231110, interval=60000, endpoint="quote", return_format="parquet"
+            root="AAPL", date=20231110, interval=60000, schema="quote", return_format="parquet"
         )
         parquet_result = stock_client.get_data(parquet_request)
 
         # Get IPC result
         ipc_request = HistStockRequest(
-            root="AAPL", date=20231110, interval=60000, endpoint="quote", return_format="ipc"
+            root="AAPL", date=20231110, interval=60000, schema="quote", return_format="ipc"
         )
         ipc_result = stock_client.get_data(ipc_request)
 
@@ -498,12 +498,12 @@ class TestHistoricalStockClientIntegration:
 
         # Get parquet result
         parquet_request = HistStockRequest(
-            root="AAPL", date=20231103, interval=60000, endpoint="ohlc", return_format="parquet"
+            root="AAPL", date=20231103, interval=60000, schema="ohlc", return_format="parquet"
         )
         parquet_result = stock_client.get_data(parquet_request)
 
         # Get IPC result
-        ipc_request = HistStockRequest(root="AAPL", date=20231103, interval=60000, endpoint="ohlc", return_format="ipc")
+        ipc_request = HistStockRequest(root="AAPL", date=20231103, interval=60000, schema="ohlc", return_format="ipc")
         ipc_result = stock_client.get_data(ipc_request)
 
         # Read both formats
@@ -525,11 +525,11 @@ class TestHistoricalStockClientIntegration:
         """Test that parquet and IPC formats produce equivalent results for EOD endpoint."""
 
         # Get parquet result (year-based)
-        parquet_request = HistStockRequest(root="AAPL", year=2024, endpoint="eod", return_format="parquet")
+        parquet_request = HistStockRequest(root="AAPL", year=2024, schema="eod", return_format="parquet")
         parquet_result = stock_client.get_data(parquet_request)
 
         # Get IPC result (date-based, should extract same year)
-        ipc_request = HistStockRequest(root="AAPL", date=20240615, endpoint="eod", return_format="ipc")
+        ipc_request = HistStockRequest(root="AAPL", date=20240615, schema="eod", return_format="ipc")
         ipc_result = stock_client.get_data(ipc_request)
 
         # Read both formats
@@ -550,7 +550,7 @@ class TestHistoricalStockClientIntegration:
     def test_data_content_validation(self, stock_client):
         """Test detailed data content validation."""
         request = HistStockRequest(
-            root="AAPL", date=20231110, interval=60000, endpoint="quote", return_format="parquet"
+            root="AAPL", date=20231110, interval=60000, schema="quote", return_format="parquet"
         )
 
         result = stock_client.get_data(request)
@@ -599,42 +599,42 @@ class TestHistoricalStockClientIntegration:
 
         # Test invalid return format
         with pytest.raises(ValueError, match="return_format must be"):
-            HistStockRequest(root="AAPL", date=20231110, return_format="invalid")
+            HistStockRequest(root="AAPL", date=20231110, schema="quote", return_format="invalid")
 
         # Test invalid endpoint
-        with pytest.raises(ValueError, match="endpoint must be"):
-            HistStockRequest(root="AAPL", date=20231110, endpoint="invalid")
+        with pytest.raises(ValueError, match="schema must be"):
+            HistStockRequest(root="AAPL", date=20231110, schema="invalid")
 
         # Test invalid date format
         with pytest.raises(ValueError, match="Date must be 8 digits"):
-            HistStockRequest(root="AAPL", date=2023111)  # 7 digits instead of 8
+            HistStockRequest(root="AAPL", date=2023111, schema="quote")  # 7 digits instead of 8
 
         # Test unified model validations
         with pytest.raises(ValueError, match="Either 'date' or 'year' must be provided"):
-            HistStockRequest(root="AAPL")  # Neither date nor year
+            HistStockRequest(root="AAPL", schema="quote")  # Neither date nor year
 
         with pytest.raises(ValueError, match="Provide either 'date' or 'year', not both"):
-            HistStockRequest(root="AAPL", date=20231110, year=2023)  # Both provided
+            HistStockRequest(root="AAPL", date=20231110, year=2023, schema="quote")  # Both provided
 
-        with pytest.raises(ValueError, match="Endpoint 'quote' requires 'date' field"):
-            HistStockRequest(root="AAPL", year=2023, endpoint="quote")  # Quote needs date
+        with pytest.raises(ValueError, match="Schema 'quote' requires 'date' field"):
+            HistStockRequest(root="AAPL", year=2023, schema="quote")  # Quote needs date
 
         # Test valid unified model combinations
         # EOD with year (should work)
-        eod_year_req = HistStockRequest(root="AAPL", year=2024, endpoint="eod")
+        eod_year_req = HistStockRequest(root="AAPL", year=2024, schema="eod")
         assert eod_year_req.year == 2024
-        assert eod_year_req.endpoint == "eod"
+        assert eod_year_req.schema == "eod"
 
         # EOD with date (should extract year)
-        eod_date_req = HistStockRequest(root="AAPL", date=20240615, endpoint="eod")
+        eod_date_req = HistStockRequest(root="AAPL", date=20240615, schema="eod")
         assert eod_date_req.date == 20240615
         assert eod_date_req.year == 2024  # Should be auto-extracted
-        assert eod_date_req.endpoint == "eod"
+        assert eod_date_req.schema == "eod"
 
         # Quote with date (should work)
-        quote_req = HistStockRequest(root="AAPL", date=20231110, endpoint="quote")
+        quote_req = HistStockRequest(root="AAPL", date=20231110, schema="quote")
         assert quote_req.date == 20231110
-        assert quote_req.endpoint == "quote"
+        assert quote_req.schema == "quote"
 
         print("✅ All unified model validation tests passed")
 
