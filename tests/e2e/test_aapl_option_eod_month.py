@@ -32,6 +32,11 @@ import polars as pl
 from betedge_data.storage.config import MinIOConfig
 from betedge_data.historical.option.models import HistOptionBulkRequest
 from betedge_data.common.models import TICK_SCHEMAS, CONTRACT_SCHEMA
+from tests.e2e.utils import (
+    validate_async_response,
+    validate_job_completion_for_minio,
+    display_job_timing_info,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -108,7 +113,7 @@ def generate_expected_object_key(yearmo: int, symbol: str) -> str:
     """
     # Use actual HistOptionBulkRequest to generate object key
     request = HistOptionBulkRequest(
-        root=symbol, yearmo=yearmo, exp=TEST_EXPIRATION, endpoint="eod", return_format="parquet"
+        root=symbol, yearmo=yearmo, exp=TEST_EXPIRATION, schema="eod", return_format="parquet"
     )
     object_key = request.generate_object_key()
 
@@ -303,7 +308,7 @@ def make_eod_option_request(yearmo: int, start_date: str, end_date: str) -> Dict
         "root": TEST_SYMBOL,
         "start_date": start_date,
         "end_date": end_date,
-        "endpoint": "eod",
+        "schema": "eod",
         "return_format": "parquet",
     }
 
@@ -346,7 +351,7 @@ def make_eod_option_request(yearmo: int, start_date: str, end_date: str) -> Dict
         return {"error": str(e)}
 
 
-def validate_eod_option_response(response_data: Dict, yearmo: int) -> bool:
+def validate_eod_option_response(response_data: Dict, yearmo: int) -> Tuple[bool, str]:
     """
     Validate the EOD option API response.
 
@@ -364,22 +369,21 @@ def validate_eod_option_response(response_data: Dict, yearmo: int) -> bool:
         return False
 
     # Check required fields
-    required_fields = ["status", "request_id"]
+    required_fields = ["status", "job_id"]
     for field in required_fields:
         if field not in response_data:
             print(f"✗ Missing required field: {field}")
             return False
 
-    # Check status
-    if response_data["status"] != "success":
-        print(f"✗ Request failed: {response_data.get('message', 'Unknown error')}")
-        return False
-
-    print(f"✓ Status: {response_data['status']}")
-    print(f"✓ Request ID: {response_data['request_id']}")
-    print(f"✓ Month {yearmo} will be processed (monthly aggregation for EOD)")
-
-    return True
+    # Use shared async response validation
+    success = validate_async_response(response_data, f"option EOD request for {yearmo}")
+    
+    if success:
+        print(f"✓ Request accepted for processing option EOD data for {yearmo}")
+        print("✓ Data will be published to MinIO storage asynchronously")
+        return True, response_data.get("job_id", "")
+    
+    return False, ""
 
 
 def validate_minio_storage(symbol: str, yearmo: int) -> bool:

@@ -29,6 +29,11 @@ import polars as pl
 
 from betedge_data.storage.config import MinIOConfig
 from betedge_data.manager.models import ExternalEarningsRequest
+from tests.e2e.utils import (
+    validate_async_response,
+    validate_job_completion_for_minio,
+    display_job_timing_info,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -408,9 +413,9 @@ def make_earnings_request(start_date: str, end_date: str) -> Dict:
         return {"error": str(e)}
 
 
-def validate_response(response_data: Dict, start_date: str, end_date: str) -> bool:
+def validate_response(response_data: Dict, start_date: str, end_date: str) -> Tuple[bool, str]:
     """
-    Validate the API response.
+    Validate the async API response.
 
     Args:
         response_data: API response data
@@ -418,32 +423,17 @@ def validate_response(response_data: Dict, start_date: str, end_date: str) -> bo
         end_date: End date in YYYYMM format
 
     Returns:
-        True if validation passes
+        Tuple of (validation_success, job_id)
     """
-    print("Validating API response:")
-
-    if "error" in response_data:
-        print(f"✗ API returned error: {response_data['error']}")
-        return False
-
-    # Check required fields for simplified response format
-    required_fields = ["status", "request_id"]
-    for field in required_fields:
-        if field not in response_data:
-            print(f"✗ Missing required field: {field}")
-            return False
-
-    # Check status
-    if response_data["status"] != "success":
-        print(f"✗ Request failed with status: {response_data['status']}")
-        return False
-
-    print(f"✓ Status: {response_data['status']}")
-    print(f"✓ Request ID: {response_data['request_id']}")
-    print(f"✓ Request accepted for processing date range {start_date} to {end_date}")
-    print("✓ Data will be published to MinIO storage asynchronously")
-
-    return True
+    # Use shared async response validation
+    success = validate_async_response(response_data, f"earnings request for {start_date} to {end_date}")
+    
+    if success:
+        print(f"✓ Request accepted for processing date range {start_date} to {end_date}")
+        print("✓ Data will be published to MinIO storage asynchronously")
+        return True, response_data.get("job_id", "")
+    
+    return False, ""
 
 
 def display_test_summary(
@@ -452,6 +442,7 @@ def display_test_summary(
     success: bool,
     total_time: float,
     minio_results: Dict = None,
+    job_data: Dict = None,
 ) -> None:
     """Display test summary."""
     print("=" * 70)
@@ -469,7 +460,12 @@ def display_test_summary(
     status = "PASSED" if success else "FAILED"
     icon = "🎉" if success else "❌"
     print(f"  {icon} Overall result: {status}")
-    print(f"  ⏱️  Total execution time: {total_time:.2f}s")
+    
+    # Display job timing info if available
+    if job_data:
+        display_job_timing_info(job_data, total_time)
+    else:
+        print(f"  🕐 Total Test Time: {total_time:.1f}s")
 
     # Add MinIO validation results
     if minio_results:
@@ -489,17 +485,18 @@ def display_test_summary(
 
     if success:
         print("✅ End-to-end earnings flow verified successfully!")
-        print("✅ API request accepted and processing initiated")
+        print("✅ Async background job processing working")
         print("✅ Monthly processing is working correctly")
         print("✅ MinIO object storage publishing working")
         print("✅ Data successfully written to storage")
-        print("✅ Unified processing pattern working")
+        print("✅ Job completion tracking working")
     else:
         print("❌ End-to-end earnings test failed")
         print("🔍 Check API logs and ensure:")
         print("   - NASDAQ API is accessible")
         print("   - MinIO is running on localhost:9000")
         print("   - API server is running on localhost:8000")
+        print("   - Background job processing is working correctly")
 
         if minio_results and not minio_results.get("minio_connected"):
             print("   - MinIO connection configuration is correct")
@@ -529,20 +526,28 @@ def test_earnings_month_e2e():
     logger.info("Step 3: Making earnings request...")
     response_data = make_earnings_request(start_date, end_date)
 
-    # Step 4: Validate response
-    logger.info("Step 4: Validating response...")
-    response_success = validate_response(response_data, start_date, end_date)
-    assert response_success, "Response validation failed"
+    # Step 4: Validate async response
+    logger.info("Step 4: Validating async response...")
+    response_success, job_id = validate_response(response_data, start_date, end_date)
+    assert response_success, "Async response validation failed"
+    assert job_id, "No job ID received from async response"
 
-    # Step 5: Validate MinIO data with comprehensive validation
-    logger.info("Step 5: Validating MinIO data storage...")
+    # Step 5: Wait for background job completion
+    logger.info("Step 5: Waiting for background job completion...")
     expected_object_keys = generate_expected_object_keys(start_date, end_date)
+    job_success, job_data = validate_job_completion_for_minio(
+        API_BASE_URL, job_id, len(expected_object_keys)
+    )
+    assert job_success, "Background job did not complete successfully"
+
+    # Step 6: Validate MinIO data with comprehensive validation
+    logger.info("Step 6: Validating MinIO data storage...")
     logger.info(f"Expected object keys: {expected_object_keys}")
 
     minio_success, minio_results = validate_minio_data_with_content(expected_object_keys)
     logger.info(f"MinIO validation: {'✓ Passed' if minio_success else '✗ Failed'}")
 
-    # Step 6: Comprehensive validation checks
+    # Step 7: Comprehensive validation checks
     schema_validations = minio_results.get("schema_validations", [])
     quality_validations = minio_results.get("quality_validations", [])
 
@@ -552,13 +557,14 @@ def test_earnings_month_e2e():
     logger.info(f"Schema validation: {'✓ Passed' if schema_success else '✗ Failed'}")
     logger.info(f"Data quality validation: {'✓ Passed' if quality_success else '✗ Failed'}")
 
-    # Step 7: Display summary
+    # Step 8: Display summary
     total_time = time.time() - total_start_time
-    overall_success = response_success and minio_success and schema_success and quality_success
-    display_test_summary(start_date, end_date, overall_success, total_time, minio_results)
+    overall_success = response_success and job_success and minio_success and schema_success and quality_success
+    display_test_summary(start_date, end_date, overall_success, total_time, minio_results, job_data)
 
-    # Step 8: Final assertions for pytest
+    # Step 9: Final assertions for pytest
     assert response_success, "API response validation failed"
+    assert job_success, "Background job completion failed"
     assert minio_success, (
         f"MinIO validation failed: found {minio_results.get('files_found', 0)}/{minio_results.get('files_expected', 0)} files"
     )

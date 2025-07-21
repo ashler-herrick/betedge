@@ -33,6 +33,11 @@ from betedge_data.manager.utils import generate_trading_date_list
 from betedge_data.storage.config import MinIOConfig
 from betedge_data.historical.option.models import HistOptionBulkRequest
 from betedge_data.common.models import TICK_SCHEMAS, CONTRACT_SCHEMA
+from tests.e2e.utils import (
+    validate_async_response,
+    validate_job_completion_for_minio,
+    display_job_timing_info,
+)
 
 
 # Configure logging
@@ -68,7 +73,7 @@ def get_business_week_range(days_back: int = 30) -> Tuple[str, str]:
     return start_date.strftime("%Y%m%d"), end_date.strftime("%Y%m%d")
 
 
-def generate_expected_object_keys(dates: List[int], symbol: str, interval: int, endpoint: str = "quote") -> List[str]:
+def generate_expected_object_keys(dates: List[int], symbol: str, interval: int, schema: str = "quote") -> List[str]:
     """
     Generate expected MinIO object keys using actual request objects.
 
@@ -76,7 +81,7 @@ def generate_expected_object_keys(dates: List[int], symbol: str, interval: int, 
         dates: List of dates as integers in YYYYMMDD format
         symbol: Stock symbol (e.g., 'AAPL')
         interval: Interval in milliseconds
-        endpoint: Endpoint type ("quote" or "ohlc")
+        schema: schema type ("quote" or "ohlc")
 
     Returns:
         List of expected object keys
@@ -86,24 +91,24 @@ def generate_expected_object_keys(dates: List[int], symbol: str, interval: int, 
     for date_int in dates:
         # Use actual HistOptionBulkRequest to generate object key
         request = HistOptionBulkRequest(
-            root=symbol, date=date_int, interval=interval, endpoint=endpoint, return_format="parquet"
+            root=symbol, date=date_int, interval=interval, schema=schema, return_format="parquet"
         )
         object_key = request.generate_object_key()
         object_keys.append(object_key)
 
     logger.debug(
-        f"Generated {len(object_keys)} expected object keys using actual request model for {endpoint} endpoint"
+        f"Generated {len(object_keys)} expected object keys using actual request model for {schema} schema"
     )
     return object_keys
 
 
-def validate_parquet_schema(file_content: bytes, endpoint: str = "quote") -> Dict:
+def validate_parquet_schema(file_content: bytes, schema: str = "quote") -> Dict:
     """
     Validate Parquet file schema against expected structure.
 
     Args:
         file_content: Raw Parquet file content as bytes
-        endpoint: Endpoint type ("quote" or "ohlc") to determine expected schema
+        schema: schema type ("quote" or "ohlc") to determine expected schema
 
     Returns:
         Dict with validation results
@@ -113,7 +118,7 @@ def validate_parquet_schema(file_content: bytes, endpoint: str = "quote") -> Dic
         table = pq.read_table(pa.BufferReader(file_content))
 
         # Get expected schema from actual definitions
-        expected_tick_fields = TICK_SCHEMAS[endpoint]["field_names"]
+        expected_tick_fields = TICK_SCHEMAS[schema]["field_names"]
         expected_contract_fields = CONTRACT_SCHEMA["field_names"]
         expected_fields = expected_tick_fields + expected_contract_fields
 
@@ -224,14 +229,14 @@ def check_api_health() -> bool:
         return False
 
 
-def make_options_request(start_date: str, end_date: str, endpoint: str = "quote") -> Dict:
+def make_options_request(start_date: str, end_date: str, schema: str = "quote") -> Dict:
     """
     Make historical options API request.
 
     Args:
         start_date: Start date in YYYYMMDD format
         end_date: End date in YYYYMMDD format
-        endpoint: Endpoint type ("quote" or "ohlc")
+        schema: schema type ("quote" or "ohlc")
 
     Returns:
         API response data
@@ -242,15 +247,15 @@ def make_options_request(start_date: str, end_date: str, endpoint: str = "quote"
         "start_date": start_date,
         "end_date": end_date,
         "interval": TEST_INTERVAL,
-        "endpoint": endpoint,
+        "schema": schema,
     }
 
     print("Making API request:")
-    print(f"  Endpoint: POST {API_BASE_URL}/historical/option")
+    print(f"  schema: POST {API_BASE_URL}/historical/option")
     print(f"  Symbol: {TEST_SYMBOL}")
     print(f"  Date range: {start_date} to {end_date}")
     print(f"  Interval: {TEST_INTERVAL}ms ({TEST_INTERVAL // 60000}m)")
-    print(f"  Data type: {endpoint}")
+    print(f"  Data type: {schema}")
     print()
 
     start_time = time.time()
@@ -283,53 +288,38 @@ def make_options_request(start_date: str, end_date: str, endpoint: str = "quote"
         return {"error": str(e)}
 
 
-def validate_response(response_data: Dict, expected_dates: List[str]) -> bool:
+def validate_response(response_data: Dict, expected_dates: List[str]) -> Tuple[bool, str]:
     """
-    Validate the API response.
+    Validate the async API response.
 
     Args:
         response_data: API response data
         expected_dates: List of expected dates that should have been processed
 
     Returns:
-        True if validation passes
+        Tuple of (validation_success, job_id)
     """
-    print("Validating API response:")
-
-    if "error" in response_data:
-        print(f"✗ API returned error: {response_data['error']}")
-        return False
-
-    # Check required fields for simplified response format
-    required_fields = ["status", "request_id"]
-    for field in required_fields:
-        if field not in response_data:
-            print(f"✗ Missing required field: {field}")
-            return False
-
-    # Check status
-    if response_data["status"] != "success":
-        print(f"✗ Request failed with status: {response_data['status']}")
-        return False
-
-    print(f"✓ Status: {response_data['status']}")
-    print(f"✓ Request ID: {response_data['request_id']}")
-
     expected_days = len(expected_dates)
-    print(f"✓ Request accepted for processing {expected_days} trading days")
-    print(f"✓ Date range covers: {expected_dates[0]} to {expected_dates[-1]}")
-    print("✓ Data will be published to MinIO storage asynchronously")
+    
+    # Use shared async response validation
+    success = validate_async_response(response_data, f"option request for {expected_days} days")
+    
+    if success:
+        print(f"✓ Request accepted for processing {expected_days} trading days")
+        print(f"✓ Date range covers: {expected_dates[0]} to {expected_dates[-1]}")
+        print("✓ Data will be published to MinIO storage asynchronously")
+        return True, response_data.get("job_id", "")
+    
+    return False, ""
 
-    return True
 
-
-def validate_minio_data_with_content(expected_object_keys: List[str], endpoint: str = "quote") -> Tuple[bool, Dict]:
+def validate_minio_data_with_content(expected_object_keys: List[str], schema: str = "quote") -> Tuple[bool, Dict]:
     """
     Validate that data was written to MinIO storage and download content for validation.
 
     Args:
         expected_object_keys: List of expected object keys in MinIO
-        endpoint: Endpoint type ("quote" or "ohlc") for schema validation
+        schema: schema type ("quote" or "ohlc") for schema validation
 
     Returns:
         Tuple of (success, validation_results)
@@ -389,7 +379,7 @@ def validate_minio_data_with_content(expected_object_keys: List[str], endpoint: 
                     file_contents.append(file_content)
 
                     # Validate schema
-                    schema_result = validate_parquet_schema(file_content, endpoint)
+                    schema_result = validate_parquet_schema(file_content, schema)
                     schema_result["object_key"] = object_key
                     schema_validations.append(schema_result)
 
@@ -461,11 +451,12 @@ def display_test_summary(
     success: bool,
     total_time: float,
     minio_results: Dict = None,
-    endpoint: str = "quote",
+    schema: str = "quote",
+    job_data: Dict = None,
 ) -> None:
     """Display test summary."""
     print("=" * 70)
-    print("END-TO-END TEST SUMMARY")
+    print("END-TO-END OPTION TEST SUMMARY")
     print("=" * 70)
 
     print("Test Configuration:")
@@ -473,7 +464,7 @@ def display_test_summary(
     print(f"  Date range: {start_date} to {end_date}")
     print(f"  Expected business days: {len(expected_dates)}")
     print(f"  Business days: {', '.join(expected_dates)}")
-    print(f"  Data type: {endpoint.upper()} option data")
+    print(f"  Data type: {schema.upper()} option data")
     print("  Storage: S3-compatible object storage (MinIO)")
     print()
 
@@ -481,7 +472,12 @@ def display_test_summary(
     status = "PASSED" if success else "FAILED"
     icon = "🎉" if success else "❌"
     print(f"  {icon} Overall result: {status}")
-    print(f"  ⏱️  Total execution time: {total_time:.2f}s")
+    
+    # Display job timing info if available
+    if job_data:
+        display_job_timing_info(job_data, total_time)
+    else:
+        print(f"  🕐 Total Test Time: {total_time:.1f}s")
 
     # Add MinIO validation results
     if minio_results:
@@ -501,17 +497,18 @@ def display_test_summary(
 
     if success:
         print("✅ End-to-end flow verified successfully!")
-        print("✅ API request accepted and processing initiated")
+        print("✅ Async background job processing working")
         print("✅ Date splitting is working correctly")
         print("✅ MinIO object storage publishing working")
         print("✅ Data successfully written to storage")
-        print("✅ Unified processing pattern working")
+        print("✅ Job completion tracking working")
     else:
         print("❌ End-to-end test failed")
         print("🔍 Check API logs and ensure:")
         print("   - ThetaTerminal is running and authenticated")
         print("   - MinIO is running on localhost:9000")
         print("   - API server is running on localhost:8000")
+        print("   - Background job processing is working correctly")
 
         if minio_results and not minio_results.get("minio_connected"):
             print("   - MinIO connection configuration is correct")
@@ -542,23 +539,31 @@ def test_aapl_option_week_e2e():
 
     # Step 3: Make options request
     logger.info("Step 3: Making historical options request...")
-    endpoint = "quote"
-    response_data = make_options_request(start_date, end_date, endpoint)
+    schema = "quote"
+    response_data = make_options_request(start_date, end_date, schema)
 
-    # Step 4: Validate response
-    logger.info("Step 4: Validating response...")
-    response_success = validate_response(response_data, expected_dates)
-    assert response_success, "Response validation failed"
+    # Step 4: Validate async response
+    logger.info("Step 4: Validating async response...")
+    response_success, job_id = validate_response(response_data, expected_dates)
+    assert response_success, "Async response validation failed"
+    assert job_id, "No job ID received from async response"
 
-    # Step 5: Validate MinIO data with comprehensive validation
-    logger.info("Step 5: Validating MinIO data storage...")
-    expected_object_keys = generate_expected_object_keys(expected_dates_int, TEST_SYMBOL, TEST_INTERVAL, endpoint)
+    # Step 5: Wait for background job completion
+    logger.info("Step 5: Waiting for background job completion...")
+    job_success, job_data = validate_job_completion_for_minio(
+        API_BASE_URL, job_id, len(expected_dates)
+    )
+    assert job_success, "Background job did not complete successfully"
+
+    # Step 6: Validate MinIO data with comprehensive validation
+    logger.info("Step 6: Validating MinIO data storage...")
+    expected_object_keys = generate_expected_object_keys(expected_dates_int, TEST_SYMBOL, TEST_INTERVAL, schema)
     logger.info(f"Expected object keys: {expected_object_keys}")
 
-    minio_success, minio_results = validate_minio_data_with_content(expected_object_keys, endpoint)
+    minio_success, minio_results = validate_minio_data_with_content(expected_object_keys, schema)
     logger.info(f"MinIO validation: {'✓ Passed' if minio_success else '✗ Failed'}")
 
-    # Step 6: Comprehensive validation checks
+    # Step 7: Comprehensive validation checks
     schema_validations = minio_results.get("schema_validations", [])
     quality_validations = minio_results.get("quality_validations", [])
 
@@ -568,13 +573,14 @@ def test_aapl_option_week_e2e():
     logger.info(f"Schema validation: {'✓ Passed' if schema_success else '✗ Failed'}")
     logger.info(f"Data quality validation: {'✓ Passed' if quality_success else '✗ Failed'}")
 
-    # Step 7: Display summary
+    # Step 8: Display summary
     total_time = time.time() - total_start_time
-    overall_success = response_success and minio_success and schema_success and quality_success
-    display_test_summary(start_date, end_date, expected_dates, overall_success, total_time, minio_results, endpoint)
+    overall_success = response_success and job_success and minio_success and schema_success and quality_success
+    display_test_summary(start_date, end_date, expected_dates, overall_success, total_time, minio_results, schema, job_data)
 
-    # Step 8: Final assertions for pytest
+    # Step 9: Final assertions for pytest
     assert response_success, "API response validation failed"
+    assert job_success, "Background job completion failed"
     assert minio_success, (
         f"MinIO validation failed: found {minio_results.get('files_found', 0)}/{minio_results.get('files_expected', 0)} files"
     )

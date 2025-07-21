@@ -29,6 +29,11 @@ import pyarrow.parquet as pq
 import pyarrow as pa
 
 from betedge_data.storage.config import MinIOConfig
+from tests.e2e.utils import (
+    validate_async_response,
+    validate_job_completion_for_minio,
+    display_job_timing_info,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -112,7 +117,7 @@ def make_eod_request(start_year: int, end_year: int) -> Dict:
         "root": TEST_SYMBOL,
         "start_date": start_date,
         "end_date": end_date,
-        "endpoint": "eod",
+        "schema": "eod",
         "return_format": "parquet",
     }
 
@@ -154,39 +159,26 @@ def make_eod_request(start_year: int, end_year: int) -> Dict:
         return {"error": str(e)}
 
 
-def validate_eod_response(response_data: Dict, expected_years: int) -> bool:
+def validate_eod_response(response_data: Dict, expected_years: int) -> Tuple[bool, str]:
     """
-    Validate the EOD API response.
+    Validate the async EOD API response.
 
     Args:
         response_data: API response data
         expected_years: Number of years that should have been processed
 
     Returns:
-        True if validation passes
+        Tuple of (validation_success, job_id)
     """
-    print("Validating EOD API response:")
-
-    if "error" in response_data:
-        print(f"✗ API returned error: {response_data['error']}")
-        return False
-
-    # Check required fields
-    required_fields = ["status", "request_id"]
-    for field in required_fields:
-        if field not in response_data:
-            print(f"✗ Missing required field: {field}")
-            return False
-
-    # Check status
-    if response_data["status"] != "success":
-        print(f"✗ Request failed: {response_data.get('message', 'Unknown error')}")
-        return False
-
-    print(f"✓ Status: {response_data['status']}")
-    print(f"✓ Request ID: {response_data['request_id']}")
-
-    return True
+    # Use shared async response validation
+    success = validate_async_response(response_data, f"EOD request for {expected_years} year(s)")
+    
+    if success:
+        print(f"✓ Request accepted for processing {expected_years} year(s) of EOD data")
+        print("✓ Data will be published to MinIO storage asynchronously")
+        return True, response_data.get("job_id", "")
+    
+    return False, ""
 
 
 def validate_minio_storage(symbol: str, year: int) -> bool:
@@ -305,7 +297,7 @@ def validate_minio_storage(symbol: str, year: int) -> bool:
         return False
 
 
-def display_test_summary(start_year: int, end_year: int, success: bool, total_time: float) -> None:
+def display_test_summary(start_year: int, end_year: int, success: bool, total_time: float, job_data: Dict = None) -> None:
     """Display test summary."""
     print("=" * 70)
     print("END-TO-END EOD STOCK DATA TEST SUMMARY")
@@ -325,22 +317,28 @@ def display_test_summary(start_year: int, end_year: int, success: bool, total_ti
     status = "PASSED" if success else "FAILED"
     icon = "🎉" if success else "❌"
     print(f"  {icon} Overall result: {status}")
-    print(f"  ⏱️  Total execution time: {total_time:.2f}s")
+    
+    # Display job timing info if available
+    if job_data:
+        display_job_timing_info(job_data, total_time)
+    else:
+        print(f"  🕐 Total Test Time: {total_time:.1f}s")
     print()
 
     if success:
         print("✅ End-to-end EOD data workflow verified successfully!")
+        print("✅ Async background job processing working")
         print("✅ Yearly data aggregation is working correctly")
         print("✅ MinIO object storage upload is working")
         print("✅ EOD data structure validation passed")
-        print("✅ API processing completed without errors")
+        print("✅ Job completion tracking working")
     else:
         print("❌ End-to-end EOD test failed")
         print("🔍 Check API logs and ensure:")
         print("   - ThetaTerminal is running and authenticated")
         print("   - MinIO is running on localhost:9000")
         print("   - API server is running on localhost:8000")
-        print("   - EOD endpoint /historical/stock/eod is available")
+        print("   - Background job processing is working correctly")
 
 
 def test_aapl_eod_year_e2e():
@@ -366,14 +364,18 @@ def test_aapl_eod_year_e2e():
     logger.info("Step 3: Making historical stock EOD request...")
     response_data = make_eod_request(start_year, end_year)
 
-    # Step 4: Validate response
-    logger.info("Step 4: Validating API response...")
-    response_ok = validate_eod_response(response_data, expected_years)
-    assert response_ok, "EOD API response validation failed"
+    # Step 4: Validate async response
+    logger.info("Step 4: Validating async response...")
+    response_success, job_id = validate_eod_response(response_data, expected_years)
+    assert response_success, "Async response validation failed"
+    assert job_id, "No job ID received from async response"
 
-    # Step 5: Wait a moment for processing to complete
-    logger.info("Step 5: Waiting for processing to complete...")
-    time.sleep(5)  # Give the system time to process and store the data
+    # Step 5: Wait for background job completion
+    logger.info("Step 5: Waiting for background job completion...")
+    job_success, job_data = validate_job_completion_for_minio(
+        API_BASE_URL, job_id, expected_years  # EOD typically processes 1 item per year
+    )
+    assert job_success, "Background job did not complete successfully"
 
     # Step 6: Validate MinIO storage
     logger.info("Step 6: Validating MinIO storage...")
@@ -382,7 +384,7 @@ def test_aapl_eod_year_e2e():
 
     # Step 7: Display summary
     total_time = time.time() - total_start_time
-    display_test_summary(start_year, end_year, True, total_time)
+    display_test_summary(start_year, end_year, True, total_time, job_data)
 
     logger.info("🎉 End-to-end EOD test completed successfully!")
 

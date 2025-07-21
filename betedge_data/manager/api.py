@@ -8,7 +8,7 @@ data requests through the ThetaData clients.
 import logging
 import os
 from contextlib import asynccontextmanager
-from uuid import uuid4
+from uuid import uuid4, UUID
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -97,66 +97,130 @@ async def root():
 @app.post(
     "/historical/option",
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Process historical option data with date range support",
-    description="Fetch filtered historical option data for a date range and upload each day to object storage",
+    summary="Submit historical option data request for background processing",
+    description="Submit historical option data request and return job ID for tracking",
 )
 async def process_historical_option(request: ExternalHistoricalOptionRequest):
-    """Process historical option data request with date range support."""
+    """Submit historical option data request for background processing."""
     request_id = uuid4()
     logger.info(f"Received historical option request {request_id}: {request.root}")
 
     try:
+        # Start background processing (non-blocking)
         await service.process_request(request, request_id)
-        return {"status": "success", "request_id": str(request_id)}
+        
+        return {
+            "status": "accepted", 
+            "job_id": str(request_id),
+            "message": "Request submitted for background processing",
+            "status_url": f"/jobs/{request_id}"
+        }
     except Exception as e:
-        logger.error(f"Error processing historical option request {request_id}: {e}")
+        logger.error(f"Error submitting request {request_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process historical option request: {str(e)}",
+            detail=f"Failed to submit request: {str(e)}",
         )
 
 
 @app.post(
     "/historical/stock",
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Process historical stock data with date range support",
-    description="Fetch historical stock quote data for a date range and upload each day to object storage",
+    summary="Submit historical stock data request for background processing",
+    description="Submit historical stock data request and return job ID for tracking",
 )
 async def process_historical_stock(request: ExternalHistoricalStockRequest):
-    """Process historical stock data request with date range support."""
+    """Submit historical stock data request for background processing."""
     request_id = uuid4()
     logger.info(f"Received historical stock request {request_id}: {request.root}")
 
     try:
+        # Start background processing (non-blocking)
         await service.process_request(request, request_id)
-        return {"status": "success", "request_id": str(request_id)}
+        
+        return {
+            "status": "accepted", 
+            "job_id": str(request_id),
+            "message": "Request submitted for background processing",
+            "status_url": f"/jobs/{request_id}"
+        }
     except Exception as e:
-        logger.error(f"Error processing historical stock request {request_id}: {e}")
+        logger.error(f"Error submitting request {request_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process historical stock request: {str(e)}",
+            detail=f"Failed to submit request: {str(e)}",
         )
 
 
 @app.post(
     "/earnings",
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Process earnings data with date range support",
-    description="Fetch earnings data for a date range and upload to object storage organized by month",
+    summary="Submit earnings data request for background processing",
+    description="Submit earnings data request and return job ID for tracking",
 )
 async def process_earnings(request: ExternalEarningsRequest):
-    """Process earnings data request with date range support."""
+    """Submit earnings data request for background processing."""
     request_id = uuid4()
     logger.info(f"Received earnings request {request_id} from {request.start_date} to {request.end_date}")
 
     try:
+        # Start background processing (non-blocking)
         await service.process_request(request, request_id)
-        return {"status": "success", "request_id": str(request_id)}
+        
+        return {
+            "status": "accepted", 
+            "job_id": str(request_id),
+            "message": "Request submitted for background processing",
+            "status_url": f"/jobs/{request_id}"
+        }
     except Exception as e:
-        logger.error(f"Error processing earnings request {request_id}: {e}")
+        logger.error(f"Error submitting request {request_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process earnings request: {str(e)}",
+            detail=f"Failed to submit request: {str(e)}",
+        )
+
+
+@app.get(
+    "/jobs/{job_id}",
+    summary="Get job status and progress",
+    description="Monitor the status and progress of a background job",
+)
+async def get_job_status(job_id: str):
+    """Get status of background job."""
+    try:
+        job_uuid = UUID(job_id)
+        job_info = service.get_job_status(job_uuid)
+        
+        if not job_info:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Job {job_id} not found"
+            )
+        
+        return {
+            "job_id": str(job_info.job_id),
+            "status": job_info.status,
+            "progress": {
+                "completed": job_info.completed_items,
+                "total": job_info.total_items,
+                "percentage": job_info.progress_percentage
+            },
+            "created_at": job_info.created_at.isoformat(),
+            "updated_at": job_info.updated_at.isoformat(),
+            "error_message": job_info.error_message
+        }
+        
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid job ID format"
+        )
+    except Exception as e:
+        logger.error(f"Error getting job status {job_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get job status: {str(e)}"
         )
 
 

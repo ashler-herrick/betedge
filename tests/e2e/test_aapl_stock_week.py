@@ -25,7 +25,12 @@ from typing import Dict, List, Tuple
 import pytest
 import requests
 
-from betedge_data.manager.models import generate_date_list
+from betedge_data.manager.utils import generate_date_list
+from tests.e2e.utils import (
+    validate_async_response,
+    validate_job_completion_for_minio,
+    display_job_timing_info,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -135,67 +140,38 @@ def make_stock_request(start_date: str, end_date: str) -> Dict:
         return {"error": str(e)}
 
 
-def validate_response(response_data: Dict, expected_dates: List[str]) -> bool:
+def validate_response(response_data: Dict, expected_dates: List[int]) -> Tuple[bool, str]:
     """
-    Validate the API response.
+    Validate the async API response.
 
     Args:
         response_data: API response data
-        expected_dates: List of expected dates that should have been processed
+        expected_dates: List of expected dates as integers in YYYYMMDD format
 
     Returns:
-        True if validation passes
+        Tuple of (validation_success, job_id)
     """
-    print("Validating API response:")
-
-    if "error" in response_data:
-        print(f"✗ API returned error: {response_data['error']}")
-        return False
-
-    # Check required fields
-    required_fields = ["status", "request_id", "message", "processing_time_ms"]
-    for field in required_fields:
-        if field not in response_data:
-            print(f"✗ Missing required field: {field}")
-            return False
-
-    # Check status
-    if response_data["status"] != "success":
-        print(f"✗ Request failed: {response_data.get('message', 'Unknown error')}")
-        return False
-
-    print(f"✓ Status: {response_data['status']}")
-    print(f"✓ Request ID: {response_data['request_id']}")
-    print(f"✓ Processing time: {response_data['processing_time_ms']}ms")
-
-    # Validate storage location
-    storage_location = response_data.get("storage_location")
-    if storage_location and "historical-stock" in storage_location:
-        print(f"✓ Storage location: {storage_location}")
-    else:
-        print(f"? Storage location unclear: {storage_location}")
-
-    # Check message content for date processing
-    message = response_data.get("message", "")
     expected_days = len(expected_dates)
-
-    if f"{expected_days}/{expected_days} days" in message or f"{expected_days} days" in message:
-        print(f"✓ Date processing: {expected_days} days processed successfully")
-    else:
-        print(f"? Date processing unclear from message: {message}")
-
-    # Check data size
-    records_count = response_data.get("records_count", 0)
-    if records_count > 0:
-        print(f"✓ Data size: {records_count:,} bytes uploaded to MinIO")
-    else:
-        print(f"? No data published (records_count: {records_count})")
-
-    return True
+    
+    # Use shared async response validation
+    success = validate_async_response(response_data, f"stock request for {expected_days} days")
+    
+    if success:
+        print(f"✓ Request accepted for processing {expected_days} trading days")
+        print(f"✓ Date range covers: {expected_dates[0]} to {expected_dates[-1]}")
+        print("✓ Data will be published to MinIO storage asynchronously")
+        return True, response_data.get("job_id", "")
+    
+    return False, ""
 
 
 def display_test_summary(
-    start_date: str, end_date: str, expected_dates: List[str], success: bool, total_time: float
+    start_date: str, 
+    end_date: str, 
+    expected_dates: List[int], 
+    success: bool, 
+    total_time: float,
+    job_data: Dict = None
 ) -> None:
     """Display test summary."""
     print("=" * 70)
@@ -207,7 +183,7 @@ def display_test_summary(
     print(f"  Venue: {TEST_VENUE}")
     print(f"  Date range: {start_date} to {end_date}")
     print(f"  Expected business days: {len(expected_dates)}")
-    print(f"  Business days: {', '.join(expected_dates)}")
+    print(f"  Business days: {', '.join(str(date) for date in expected_dates)}")
     print(f"  Interval: {TEST_INTERVAL}ms ({TEST_INTERVAL // 60000}m)")
     print(f"  RTH only: {TEST_RTH}")
     print("  Storage: S3-compatible object storage (MinIO)")
@@ -217,20 +193,27 @@ def display_test_summary(
     status = "PASSED" if success else "FAILED"
     icon = "🎉" if success else "❌"
     print(f"  {icon} Overall result: {status}")
-    print(f"  ⏱️  Total execution time: {total_time:.2f}s")
+    
+    # Display job timing info if available
+    if job_data:
+        display_job_timing_info(job_data, total_time)
+    else:
+        print(f"  🕐 Total Test Time: {total_time:.1f}s")
     print()
 
     if success:
         print("✅ End-to-end stock data workflow verified successfully!")
+        print("✅ Async background job processing working")
         print("✅ Date splitting is working correctly")
         print("✅ MinIO object storage upload is working")
-        print("✅ API processing completed without errors")
+        print("✅ Job completion tracking working")
     else:
         print("❌ End-to-end test failed")
         print("🔍 Check API logs and ensure:")
         print("   - ThetaTerminal is running and authenticated")
         print("   - MinIO is running on localhost:9000")
         print("   - API server is running on localhost:8000")
+        print("   - Background job processing is working correctly")
 
 
 def test_aapl_stock_week_e2e():
@@ -245,7 +228,7 @@ def test_aapl_stock_week_e2e():
     expected_dates = generate_date_list(start_date, end_date)
 
     logger.info(f"✓ Business week: {start_date} to {end_date}")
-    logger.info(f"✓ Trading days: {', '.join(expected_dates)} ({len(expected_dates)} days)")
+    logger.info(f"✓ Trading days: {', '.join(str(date) for date in expected_dates)} ({len(expected_dates)} days)")
 
     # Step 2: Check API health
     logger.info("Step 2: Checking API health...")
@@ -256,14 +239,22 @@ def test_aapl_stock_week_e2e():
     logger.info("Step 3: Making historical stock request...")
     response_data = make_stock_request(start_date, end_date)
 
-    # Step 4: Validate response
-    logger.info("Step 4: Validating response...")
-    success = validate_response(response_data, expected_dates)
-    assert success, "Response validation failed"
+    # Step 4: Validate async response
+    logger.info("Step 4: Validating async response...")
+    response_success, job_id = validate_response(response_data, expected_dates)
+    assert response_success, "Async response validation failed"
+    assert job_id, "No job ID received from async response"
 
-    # Step 5: Display summary
+    # Step 5: Wait for background job completion
+    logger.info("Step 5: Waiting for background job completion...")
+    job_success, job_data = validate_job_completion_for_minio(
+        API_BASE_URL, job_id, len(expected_dates)
+    )
+    assert job_success, "Background job did not complete successfully"
+
+    # Step 6: Display summary
     total_time = time.time() - total_start_time
-    display_test_summary(start_date, end_date, expected_dates, success, total_time)
+    display_test_summary(start_date, end_date, expected_dates, True, total_time, job_data)
 
     logger.info("🎉 End-to-end stock data test completed successfully!")
 

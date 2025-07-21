@@ -1,7 +1,8 @@
 """
-Unit tests for DataProcessingService unified processing pattern.
+Unit tests for DataProcessingService async background job processing.
 """
 
+import asyncio
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from uuid import uuid4
@@ -14,6 +15,31 @@ from betedge_data.manager.models import (
     ExternalEarningsRequest,
 )
 from betedge_data.manager.utils import generate_month_list
+from betedge_data.manager.job_tracker import JobStatus
+
+
+# Test utilities for async job lifecycle testing
+async def wait_for_job_completion(service, job_id, timeout=5.0):
+    """Wait for a job to complete or fail within timeout."""
+    start_time = asyncio.get_event_loop().time()
+    while True:
+        job_info = service.get_job_status(job_id)
+        if job_info and job_info.is_finished:
+            return job_info
+        
+        if asyncio.get_event_loop().time() - start_time > timeout:
+            raise TimeoutError(f"Job {job_id} did not complete within {timeout} seconds")
+        
+        await asyncio.sleep(0.1)
+
+
+async def wait_for_background_tasks(service, timeout=5.0):
+    """Wait for all background tasks to complete."""
+    start_time = asyncio.get_event_loop().time()
+    while service._background_tasks:
+        if asyncio.get_event_loop().time() - start_time > timeout:
+            raise TimeoutError(f"Background tasks did not complete within {timeout} seconds")
+        await asyncio.sleep(0.1)
 
 
 @pytest.mark.unit
@@ -97,27 +123,42 @@ class TestDataProcessingServiceUnified:
         request.get_client.return_value = mock_client
         return request
 
-    async def test_process_request_unified_pattern(self, service, mock_option_request, mock_publisher):
-        """Test unified process_request method works for all request types."""
+    async def test_process_request_unified_pattern(self, service, mock_option_request):
+        """Test unified process_request method creates background job and processes asynchronously."""
         request_id = uuid4()
 
+        # Call process_request - this should create job and return immediately
         await service.process_request(mock_option_request, request_id)
 
-        # Verify the request's methods were called
-        mock_option_request.get_subrequests.assert_called_once()
-        mock_option_request.get_client.assert_called_once()
+        # Verify job was created
+        job_info = service.get_job_status(request_id)
+        assert job_info is not None
+        assert job_info.job_id == request_id
+        assert job_info.total_items == 2  # Two subrequests
+        assert job_info.status in [JobStatus.PENDING, JobStatus.RUNNING]
 
-        # Verify file existence was checked for each subrequest
-        assert mock_publisher.file_exists.call_count == 2
+        # Wait for background processing to complete
+        final_job_info = await wait_for_job_completion(service, request_id)
+        
+        # Verify job completed successfully
+        assert final_job_info.status == JobStatus.COMPLETED
+        assert final_job_info.completed_items == 2
+        assert final_job_info.progress_percentage == 100.0
 
-        # Verify publisher.publish was called for each subrequest
-        assert mock_publisher.publish.call_count == 2
+        # Verify the request's methods were called during background processing
+        mock_option_request.get_subrequests.assert_called()
+        mock_option_request.get_client.assert_called()
 
-    async def test_client_get_data_called_correctly(self, service, mock_option_request, mock_publisher):
-        """Test that client.get_data() is called for each generated request."""
+    async def test_client_get_data_called_correctly(self, service, mock_option_request):
+        """Test that client.get_data() is called for each generated request in background processing."""
         request_id = uuid4()
 
+        # Start background processing
         await service.process_request(mock_option_request, request_id)
+
+        # Wait for background processing to complete
+        final_job_info = await wait_for_job_completion(service, request_id)
+        assert final_job_info.status == JobStatus.COMPLETED
 
         # Verify that get_data was called for each individual request
         mock_client = mock_option_request.get_client.return_value
@@ -209,10 +250,15 @@ class TestDataProcessingServicePublishing:
         return request
 
     async def test_process_request_publishes_data(self, service_with_publisher, mock_request_with_object_key):
-        """Test that process_request publishes data for each individual request."""
+        """Test that background processing publishes data for each individual request."""
         request_id = uuid4()
 
+        # Start background processing
         await service_with_publisher.process_request(mock_request_with_object_key, request_id)
+
+        # Wait for background job to complete
+        final_job_info = await wait_for_job_completion(service_with_publisher, request_id)
+        assert final_job_info.status == JobStatus.COMPLETED
 
         # Verify publisher.publish was called for each individual request
         assert service_with_publisher.publisher.publish.call_count == 2
@@ -236,6 +282,11 @@ class TestDataProcessingServicePublishing:
         request_id = uuid4()
         await service_with_publisher.process_request(mock_request_with_object_key, request_id)
 
+        # Wait for background job to complete
+        final_job_info = await wait_for_job_completion(service_with_publisher, request_id)
+        assert final_job_info.status == JobStatus.COMPLETED
+        assert final_job_info.completed_items == 2  # Both files counted (1 skipped, 1 processed)
+
         # Verify file_exists was called for both files
         assert service_with_publisher.publisher.file_exists.call_count == 2
 
@@ -258,8 +309,15 @@ class TestDataProcessingServicePublishing:
         request_id = uuid4()
         await service.process_request(mock_request_with_object_key, request_id)
 
+        # Wait for background job to complete
+        final_job_info = await wait_for_job_completion(service, request_id)
+        assert final_job_info.status == JobStatus.COMPLETED
+        assert final_job_info.completed_items == 2
+
         # Verify file_exists was NOT called when force_refresh=True
         assert mock_publisher.file_exists.call_count == 0
 
         # Verify all files were processed despite existing
         assert mock_publisher.publish.call_count == 2
+
+        await service.close()
