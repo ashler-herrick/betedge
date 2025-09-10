@@ -2,6 +2,6 @@
 Historical option data module.
 """
 
-from .client import HistoricalOptionClient
+from .option_client import HistoricalOptionClient
 
 __all__ = ["HistoricalOptionClient"]

@@ -117,7 +117,7 @@ def make_eod_request(start_year: int, end_year: int) -> Dict:
         "root": TEST_SYMBOL,
         "start_date": start_date,
         "end_date": end_date,
-        "schema": "eod",
+        "data_schema": "eod",
         "return_format": "parquet",
     }
 
@@ -172,12 +172,12 @@ def validate_eod_response(response_data: Dict, expected_years: int) -> Tuple[boo
     """
     # Use shared async response validation
     success = validate_async_response(response_data, f"EOD request for {expected_years} year(s)")
-    
+
     if success:
         print(f"✓ Request accepted for processing {expected_years} year(s) of EOD data")
         print("✓ Data will be published to MinIO storage asynchronously")
         return True, response_data.get("job_id", "")
-    
+
     return False, ""
 
 
@@ -297,7 +297,9 @@ def validate_minio_storage(symbol: str, year: int) -> bool:
         return False
 
 
-def display_test_summary(start_year: int, end_year: int, success: bool, total_time: float, job_data: Dict = None) -> None:
+def display_test_summary(
+    start_year: int, end_year: int, success: bool, total_time: float, job_data: Dict = None
+) -> None:
     """Display test summary."""
     print("=" * 70)
     print("END-TO-END EOD STOCK DATA TEST SUMMARY")
@@ -317,7 +319,7 @@ def display_test_summary(start_year: int, end_year: int, success: bool, total_ti
     status = "PASSED" if success else "FAILED"
     icon = "🎉" if success else "❌"
     print(f"  {icon} Overall result: {status}")
-    
+
     # Display job timing info if available
     if job_data:
         display_job_timing_info(job_data, total_time)
@@ -373,7 +375,9 @@ def test_aapl_eod_year_e2e():
     # Step 5: Wait for background job completion
     logger.info("Step 5: Waiting for background job completion...")
     job_success, job_data = validate_job_completion_for_minio(
-        API_BASE_URL, job_id, expected_years  # EOD typically processes 1 item per year
+        API_BASE_URL,
+        job_id,
+        expected_years,  # EOD typically processes 1 item per year
     )
     assert job_success, "Background job did not complete successfully"
 

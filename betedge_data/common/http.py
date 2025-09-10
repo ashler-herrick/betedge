@@ -124,6 +124,8 @@ class PaginatedHTTPClient:
         page_count = 0
         first_response_header = None
 
+        header: Dict[str, Any] = {}
+        data: Dict[str, Any] = {}
         # Build initial URL with params
         if params:
             request = self.client.build_request("GET", current_url, params=params)

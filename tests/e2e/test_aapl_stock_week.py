@@ -152,26 +152,21 @@ def validate_response(response_data: Dict, expected_dates: List[int]) -> Tuple[b
         Tuple of (validation_success, job_id)
     """
     expected_days = len(expected_dates)
-    
+
     # Use shared async response validation
     success = validate_async_response(response_data, f"stock request for {expected_days} days")
-    
+
     if success:
         print(f"✓ Request accepted for processing {expected_days} trading days")
         print(f"✓ Date range covers: {expected_dates[0]} to {expected_dates[-1]}")
         print("✓ Data will be published to MinIO storage asynchronously")
         return True, response_data.get("job_id", "")
-    
+
     return False, ""
 
 
 def display_test_summary(
-    start_date: str, 
-    end_date: str, 
-    expected_dates: List[int], 
-    success: bool, 
-    total_time: float,
-    job_data: Dict = None
+    start_date: str, end_date: str, expected_dates: List[int], success: bool, total_time: float, job_data: Dict = None
 ) -> None:
     """Display test summary."""
     print("=" * 70)
@@ -193,7 +188,7 @@ def display_test_summary(
     status = "PASSED" if success else "FAILED"
     icon = "🎉" if success else "❌"
     print(f"  {icon} Overall result: {status}")
-    
+
     # Display job timing info if available
     if job_data:
         display_job_timing_info(job_data, total_time)
@@ -247,9 +242,7 @@ def test_aapl_stock_week_e2e():
 
     # Step 5: Wait for background job completion
     logger.info("Step 5: Waiting for background job completion...")
-    job_success, job_data = validate_job_completion_for_minio(
-        API_BASE_URL, job_id, len(expected_dates)
-    )
+    job_success, job_data = validate_job_completion_for_minio(API_BASE_URL, job_id, len(expected_dates))
     assert job_success, "Background job did not complete successfully"
 
     # Step 6: Display summary

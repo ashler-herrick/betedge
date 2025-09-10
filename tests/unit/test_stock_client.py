@@ -5,7 +5,7 @@ Unit tests for HistoricalStockClient methods.
 import pytest
 from decimal import Decimal
 
-from betedge_data.historical.stock.client import HistoricalStockClient
+from betedge_data.historical.stock.stock_client import HistoricalStockClient
 from betedge_data.common.models import (
     StockThetaDataResponse,
     Header,

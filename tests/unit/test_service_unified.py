@@ -9,7 +9,7 @@ from uuid import uuid4
 import io
 
 from betedge_data.manager.service import DataProcessingService
-from betedge_data.manager.models import (
+from betedge_data.manager.external_models import (
     ExternalHistoricalOptionRequest,
     ExternalHistoricalStockRequest,
     ExternalEarningsRequest,
@@ -26,10 +26,10 @@ async def wait_for_job_completion(service, job_id, timeout=5.0):
         job_info = service.get_job_status(job_id)
         if job_info and job_info.is_finished:
             return job_info
-        
+
         if asyncio.get_event_loop().time() - start_time > timeout:
             raise TimeoutError(f"Job {job_id} did not complete within {timeout} seconds")
-        
+
         await asyncio.sleep(0.1)
 
 
@@ -139,7 +139,7 @@ class TestDataProcessingServiceUnified:
 
         # Wait for background processing to complete
         final_job_info = await wait_for_job_completion(service, request_id)
-        
+
         # Verify job completed successfully
         assert final_job_info.status == JobStatus.COMPLETED
         assert final_job_info.completed_items == 2

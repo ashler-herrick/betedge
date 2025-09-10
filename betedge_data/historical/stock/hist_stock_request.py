@@ -5,12 +5,12 @@ Data models for historical option data.
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 from betedge_data.historical.utils import interval_ms_to_string
+from betedge_data.historical.config import HistoricalConfig
 from datetime import datetime
+from urllib.parse import urlencode
 
-from betedge_data.common.interface import IRequest
 
-
-class HistStockRequest(BaseModel, IRequest):
+class HistStockRequest(BaseModel):
     """Request parameters for historical stock data."""
 
     # Required fields
@@ -20,11 +20,10 @@ class HistStockRequest(BaseModel, IRequest):
     date: Optional[int] = Field(None, description="The date in YYYYMMDD format (for quote/ohlc/single-day EOD)")
     year: Optional[int] = Field(None, description="The year for EOD data (alternative to date)")
 
-    schema: str = Field(..., description="Data schema type: 'quote', 'ohlc', or 'eod'")
+    data_schema: str = Field(..., description="Data data_schema type: 'quote', 'ohlc', or 'eod'")
     # Optional fields (with defaults)
     interval: int = Field(default=60_000, ge=0, description="Interval in milliseconds")
     return_format: str = Field(default="parquet", description="Return format: parquet or ipc")
-
 
     @field_validator("date")
     @classmethod
@@ -73,17 +72,17 @@ class HistStockRequest(BaseModel, IRequest):
         if self.date is not None and self.year is not None:
             raise ValueError("Provide either 'date' or 'year', not both")
 
-        # For EOD schema, prefer year but allow date
-        if self.schema == "eod" and self.date is not None:
+        # For EOD data_schema, prefer year but allow date
+        if self.data_schema == "eod" and self.date is not None:
             # Extract year from date for consistency
             date_str = str(self.date)
             extracted_year = int(date_str[:4])
             if self.year is None:
                 self.year = extracted_year
 
-        # For non-EOD schemas, require date
-        if self.schema in ["quote", "ohlc"] and self.date is None:
-            raise ValueError(f"Schema '{self.schema}' requires 'date' field")
+        # For non-EOD data_schemas, require date
+        if self.data_schema in ["quote", "ohlc"] and self.date is None:
+            raise ValueError(f"data_schema '{self.data_schema}' requires 'date' field")
 
         return self
 
@@ -103,12 +102,12 @@ class HistStockRequest(BaseModel, IRequest):
             raise ValueError(f"return_format must be 'parquet' or 'ipc', got '{v}'")
         return v
 
-    @field_validator("schema")
+    @field_validator("data_schema")
     @classmethod
-    def validate_schema(cls, v: str) -> str:
-        """Validate schema is supported."""
+    def validate_data_schema(cls, v: str) -> str:
+        """Validate data_schema is supported."""
         if v not in ["quote", "ohlc", "eod"]:
-            raise ValueError(f"schema must be 'quote', 'ohlc', or 'eod', got '{v}'")
+            raise ValueError(f"data_schema must be 'quote', 'ohlc', or 'eod', got '{v}'")
         return v
 
     def get_processing_year(self) -> int:
@@ -130,7 +129,7 @@ class HistStockRequest(BaseModel, IRequest):
 
     def generate_object_key(self) -> str:
         """Generate MinIO object keys for historical stock data."""
-        if self.schema == "eod":
+        if self.data_schema == "eod":
             # EOD uses yearly aggregation format
             year = self.get_processing_year()
             return f"historical-stock/eod/{self.root}/{year}/data.{self.return_format}"
@@ -140,6 +139,31 @@ class HistStockRequest(BaseModel, IRequest):
                 raise ValueError("Date is required for non-EOD endpoints")
             date_obj = datetime.strptime(str(self.date), "%Y%m%d")
             interval_str = interval_ms_to_string(self.interval)
-            base_path = f"historical-stock/{self.schema}/{interval_str}/{self.root}"
+            base_path = f"historical-stock/{self.data_schema}/{interval_str}/{self.root}"
             date_path = f"{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}"
             return f"{base_path}/{date_path}/data.{self.return_format}"
+
+    def get_url(self) -> str:
+        """Build URL for ThetaData historical stock endpoint."""
+        config = HistoricalConfig()
+        
+        if self.data_schema == "eod":
+            # EOD endpoint uses year range
+            start_date, end_date = self.get_date_range_for_eod()
+            params = {
+                "root": self.root,
+                "start_date": start_date,
+                "end_date": end_date,
+            }
+            base_url = f"{config.base_url}/hist/stock/eod"
+        else:
+            # Regular endpoints use single date + interval
+            params = {
+                "root": self.root,
+                "start_date": self.date,
+                "end_date": self.date,
+                "ivl": self.interval,
+            }
+            base_url = f"{config.base_url}/hist/stock/{self.data_schema}"
+
+        return f"{base_url}?{urlencode(params)}"

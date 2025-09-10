@@ -7,20 +7,18 @@ import httpx
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from betedge_data.alternative.earnings.models import EarningsRequest, EarningsRecord
-from betedge_data.common.interface import IClient
+from betedge_data.alternative.earnings.earnings_request import EarningsRequest, EarningsRecord
 from betedge_data.common.http import get_http_client
 from betedge_data.manager.utils import generate_trading_date_list
 
 logger = logging.getLogger(__name__)
 
 
-class EarningsClient(IClient):
+class EarningsClient:
     """Client for fetching and normalizing NASDAQ earnings data."""
 
     def __init__(self):
         """Initialize the earnings client."""
-        self.base_url = "https://api.nasdaq.com/api/calendar/earnings"
         self.headers = {
             "authority": "api.nasdaq.com",
             "accept": "application/json, text/plain, */*",
@@ -80,7 +78,7 @@ class EarningsClient(IClient):
             for i, date_str in enumerate(trading_dates, 1):
                 try:
                     logger.debug(f"Fetching earnings for {date_str} ({i}/{len(trading_dates)})")
-                    daily_records = self._fetch_daily_earnings(date_str)
+                    daily_records = self._fetch_daily_earnings(date_str, request)
                     all_records.extend(daily_records)
 
                     if i % 50 == 0:  # Log progress every 50 requests
@@ -118,19 +116,22 @@ class EarningsClient(IClient):
             logger.debug("Monthly earnings fetch error details", exc_info=True)
             raise RuntimeError(f"Monthly earnings data fetch failed: {e}") from e
 
-    def _fetch_daily_earnings(self, date_str: str) -> List[EarningsRecord]:
+    def _fetch_daily_earnings(self, date_str: str, request: EarningsRequest) -> List[EarningsRecord]:
         """
         Fetch earnings data for a specific date.
 
         Args:
             date_str: Date in YYYY-MM-DD format
+            request: EarningsRequest object
 
         Returns:
             List of normalized EarningsRecord objects
         """
         try:
             # Use shared HTTP client's internal httpx client for the request
-            response = self.client.client.get(self.base_url, params={"date": date_str}, headers=self.headers)
+            # Get URL from the request object for consistency
+            base_url = request.get_url()
+            response = self.client.client.get(base_url, params={"date": date_str}, headers=self.headers)
             response.raise_for_status()
 
             data = response.json()
@@ -184,13 +185,13 @@ class EarningsClient(IClient):
             date=date_str,
             symbol=row.get("symbol", "").strip(),
             name=row.get("name", "").strip(),
-            time=self._parse_time(row.get("time")),
-            eps=self._parse_currency(row.get("eps")),
-            eps_forecast=self._parse_currency(row.get("epsForecast")),
-            surprise_pct=self._parse_percentage(row.get("surprise")),
-            market_cap=self._parse_market_cap(row.get("marketCap")),
+            time=self._parse_time(row.get("time", "")),
+            eps=self._parse_currency(row.get("eps", "")),
+            eps_forecast=self._parse_currency(row.get("epsForecast", "")),
+            surprise_pct=self._parse_percentage(row.get("surprise", "")),
+            market_cap=self._parse_market_cap(row.get("marketCap", "")),
             fiscal_quarter_ending=row.get("fiscalQuarterEnding", "").strip() or None,
-            num_estimates=self._parse_int(row.get("noOfEsts")),
+            num_estimates=self._parse_int(row.get("noOfEsts", "")),
         )
 
     def _parse_currency(self, value: str) -> Optional[float]:

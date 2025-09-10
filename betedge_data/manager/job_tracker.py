@@ -1,18 +1,18 @@
 """
-Job tracking system for background data processing tasks.
+SQLite-backed job tracking system for background data processing tasks.
 
-This module provides in-memory job tracking with optional persistence for
+This module provides persistent job tracking using SQLite database for
 monitoring the progress of long-running data processing operations.
 """
 
-import json
 import logging
+import sqlite3
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class JobStatus(str, Enum):
     """Enumeration of possible job statuses."""
-    
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -30,7 +30,7 @@ class JobStatus(str, Enum):
 @dataclass
 class JobInfo:
     """Information about a background job."""
-    
+
     job_id: UUID
     status: JobStatus
     total_items: int
@@ -38,19 +38,22 @@ class JobInfo:
     error_message: Optional[str]
     created_at: datetime
     updated_at: datetime
-    
+    idem_key: Optional[str] = None
+    result_uri: Optional[str] = None
+    params_json: Optional[str] = None
+
     @property
     def progress_percentage(self) -> float:
         """Calculate progress as percentage (0.0 to 100.0)."""
         if self.total_items <= 0:
             return 100.0 if self.status == JobStatus.COMPLETED else 0.0
         return (self.completed_items / self.total_items) * 100.0
-    
+
     @property
     def is_finished(self) -> bool:
         """Check if job is in a terminal state."""
         return self.status in (JobStatus.COMPLETED, JobStatus.FAILED)
-    
+
     def to_dict(self) -> dict:
         """Convert JobInfo to dictionary for JSON serialization."""
         return {
@@ -61,9 +64,12 @@ class JobInfo:
             "error_message": self.error_message,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
-            "progress_percentage": self.progress_percentage
+            "progress_percentage": self.progress_percentage,
+            "idem_key": self.idem_key,
+            "result_uri": self.result_uri,
+            "params_json": self.params_json,
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "JobInfo":
         """Create JobInfo from dictionary (for deserialization)."""
@@ -74,52 +80,108 @@ class JobInfo:
             completed_items=data["completed_items"],
             error_message=data.get("error_message"),
             created_at=datetime.fromisoformat(data["created_at"]),
-            updated_at=datetime.fromisoformat(data["updated_at"])
+            updated_at=datetime.fromisoformat(data["updated_at"]),
+            idem_key=data.get("idem_key"),
+            result_uri=data.get("result_uri"),
+            params_json=data.get("params_json"),
+        )
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "JobInfo":
+        """Create JobInfo from SQLite row."""
+        return cls(
+            job_id=UUID(row["id"]),
+            status=JobStatus(row["status"]),
+            total_items=row["total_items"],
+            completed_items=row["completed_items"],
+            error_message=row["error_message"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+            idem_key=row["idem_key"],
+            result_uri=row["result_uri"],
+            params_json=row["params_json"],
         )
 
 
 class JobTracker:
     """
-    In-memory job tracking with optional file persistence.
-    
-    Provides thread-safe job management for background data processing tasks.
-    Optionally persists job state to disk for recovery across service restarts.
+    SQLite-backed job tracking with thread-safe operations.
+
+    Provides persistent job management for background data processing tasks
+    with support for idempotent operations and result URIs.
     """
-    
-    def __init__(self, persistence_file: Optional[str] = None):
+
+    def __init__(self, db_path: str = "jobs.db"):
         """
-        Initialize job tracker.
-        
+        Initialize SQLite job tracker.
+
         Args:
-            persistence_file: Optional path to JSON file for job persistence.
-                            If provided, jobs will be saved/loaded from this file.
+            db_path: Path to SQLite database file.
+            persistence_file: Ignored for compatibility with original JobTracker.
         """
-        self._jobs: Dict[UUID, JobInfo] = {}
-        self._lock = threading.RLock()  # Reentrant lock for nested calls
-        self.persistence_file = Path(persistence_file) if persistence_file else None
-        
-        # Load existing jobs from persistence file if it exists
-        if self.persistence_file and self.persistence_file.exists():
-            self._load_jobs()
-            logger.info(f"Loaded {len(self._jobs)} jobs from {self.persistence_file}")
-    
+        self.db_path = Path(db_path)
+        self._lock = threading.RLock()
+        self._init_database()
+
+        logger.info(f"Initialized SQLite job tracker with database: {self.db_path}")
+
+    def _init_database(self) -> None:
+        """Initialize database with required tables and configuration."""
+        # Ensure parent directory exists
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with self._get_connection() as conn:
+            # Configure SQLite for better performance and WAL mode
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+
+            # Create jobs table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS jobs (
+                    id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    total_items INTEGER NOT NULL,
+                    completed_items INTEGER NOT NULL,
+                    error_message TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    idem_key TEXT UNIQUE,
+                    result_uri TEXT,
+                    params_json TEXT
+                )
+            """)
+
+            # Create indexes for performance
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_updated_at ON jobs(updated_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_idem_key ON jobs(idem_key)")
+
+            conn.commit()
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get a new database connection with row factory."""
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        return conn
+
     def create_job(self, job_id: UUID, total_items: int) -> JobInfo:
         """
         Create a new job entry.
-        
+
         Args:
             job_id: Unique identifier for the job
             total_items: Total number of items to process
-            
+
         Returns:
             JobInfo object for the created job
-            
+
         Raises:
             ValueError: If job_id already exists or total_items is invalid
         """
         if total_items < 0:
             raise ValueError(f"total_items must be non-negative, got {total_items}")
-        
+
         now = datetime.now(timezone.utc)
         job_info = JobInfo(
             job_id=job_id,
@@ -128,211 +190,189 @@ class JobTracker:
             completed_items=0,
             error_message=None,
             created_at=now,
-            updated_at=now
+            updated_at=now,
         )
-        
+
         with self._lock:
-            if job_id in self._jobs:
-                raise ValueError(f"Job {job_id} already exists")
-            
-            self._jobs[job_id] = job_info
-            self._persist_jobs()
-            
+            with self._get_connection() as conn:
+                try:
+                    conn.execute(
+                        """
+                        INSERT INTO jobs (
+                            id, status, total_items, completed_items, error_message,
+                            created_at, updated_at, idem_key, result_uri, params_json
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                        (
+                            str(job_id),
+                            job_info.status.value,
+                            total_items,
+                            0,
+                            None,
+                            now.isoformat(),
+                            now.isoformat(),
+                            None,
+                            None,
+                            None,
+                        ),
+                    )
+                    conn.commit()
+                except sqlite3.IntegrityError:
+                    raise ValueError(f"Job {job_id} already exists")
+
         logger.info(f"Created job {job_id} with {total_items} items")
         return job_info
-    
+
+    def get_job_by_idem(self, idem_key: str) -> Optional[JobInfo]:
+        """
+        Get job by idempotency key.
+
+        Args:
+            idem_key: Idempotency key to search for
+
+        Returns:
+            JobInfo object if found, None otherwise
+        """
+        with self._lock:
+            with self._get_connection() as conn:
+                cursor = conn.execute("SELECT * FROM jobs WHERE idem_key = ?", (idem_key,))
+                row = cursor.fetchone()
+                return JobInfo.from_row(row) if row else None
+
     def update_progress(self, job_id: UUID, completed_items: int) -> None:
         """
         Update job progress.
-        
+
         Args:
             job_id: Job identifier
             completed_items: Number of completed items
-            
+
         Raises:
             ValueError: If job doesn't exist or completed_items is invalid
         """
+        if completed_items < 0:
+            raise ValueError(f"completed_items must be non-negative, got {completed_items}")
+
         with self._lock:
-            job_info = self._get_job_unsafe(job_id)
-            
-            if completed_items < 0:
-                raise ValueError(f"completed_items must be non-negative, got {completed_items}")
-            
-            if completed_items > job_info.total_items:
-                logger.warning(
-                    f"Job {job_id}: completed_items ({completed_items}) exceeds "
-                    f"total_items ({job_info.total_items})"
+            with self._get_connection() as conn:
+                # Get current job info
+                cursor = conn.execute("SELECT * FROM jobs WHERE id = ?", (str(job_id),))
+                row = cursor.fetchone()
+                if not row:
+                    raise ValueError(f"Job {job_id} not found")
+
+                job_info = JobInfo.from_row(row)
+
+                if completed_items > job_info.total_items:
+                    logger.warning(
+                        f"Job {job_id}: completed_items ({completed_items}) exceeds "
+                        f"total_items ({job_info.total_items})"
+                    )
+
+                # Update progress and auto-complete if needed
+                new_status = job_info.status
+                if completed_items >= job_info.total_items and job_info.status == JobStatus.RUNNING:
+                    new_status = JobStatus.COMPLETED
+                    logger.info(f"Job {job_id} auto-completed: {completed_items}/{job_info.total_items} items")
+
+                cursor = conn.execute(
+                    """
+                    UPDATE jobs 
+                    SET completed_items = ?, status = ?, updated_at = ?
+                    WHERE id = ?
+                """,
+                    (completed_items, new_status.value, datetime.now(timezone.utc).isoformat(), str(job_id)),
                 )
-            
-            job_info.completed_items = completed_items
-            job_info.updated_at = datetime.now(timezone.utc)
-            
-            # Auto-complete job if all items are done
-            if completed_items >= job_info.total_items and job_info.status == JobStatus.RUNNING:
-                job_info.status = JobStatus.COMPLETED
-                logger.info(f"Job {job_id} auto-completed: {completed_items}/{job_info.total_items} items")
-            
-            self._persist_jobs()
-    
+
+                conn.commit()
+
     def update_status(self, job_id: UUID, status: JobStatus) -> None:
         """
         Update job status.
-        
+
         Args:
             job_id: Job identifier
             status: New job status
-            
+
         Raises:
             ValueError: If job doesn't exist or status transition is invalid
         """
         with self._lock:
-            job_info = self._get_job_unsafe(job_id)
-            old_status = job_info.status
-            
-            # Validate status transitions
-            if old_status in (JobStatus.COMPLETED, JobStatus.FAILED) and status != old_status:
-                raise ValueError(f"Cannot change status from {old_status} to {status} - job is finished")
-            
-            job_info.status = status
-            job_info.updated_at = datetime.now(timezone.utc)
-            
-            if old_status != status:
-                logger.info(f"Job {job_id} status changed: {old_status} → {status}")
-            
-            self._persist_jobs()
-    
+            with self._get_connection() as conn:
+                # Get current job info
+                cursor = conn.execute("SELECT * FROM jobs WHERE id = ?", (str(job_id),))
+                row = cursor.fetchone()
+                if not row:
+                    raise ValueError(f"Job {job_id} not found")
+
+                job_info = JobInfo.from_row(row)
+                old_status = job_info.status
+
+                # Validate status transitions
+                if old_status in (JobStatus.COMPLETED, JobStatus.FAILED) and status != old_status:
+                    raise ValueError(f"Cannot change status from {old_status} to {status} - job is finished")
+
+                cursor = conn.execute(
+                    """
+                    UPDATE jobs 
+                    SET status = ?, updated_at = ?
+                    WHERE id = ?
+                """,
+                    (status.value, datetime.now(timezone.utc).isoformat(), str(job_id)),
+                )
+
+                conn.commit()
+
+                if old_status != status:
+                    logger.info(f"Job {job_id} status changed: {old_status} → {status}")
+
     def mark_completed(self, job_id: UUID) -> None:
         """
         Mark job as completed.
-        
+
         Args:
             job_id: Job identifier
         """
         self.update_status(job_id, JobStatus.COMPLETED)
-    
+
     def mark_failed(self, job_id: UUID, error_message: str) -> None:
         """
         Mark job as failed with error message.
-        
+
         Args:
             job_id: Job identifier
             error_message: Description of the error that caused failure
         """
         with self._lock:
-            job_info = self._get_job_unsafe(job_id)
-            job_info.status = JobStatus.FAILED
-            job_info.error_message = error_message
-            job_info.updated_at = datetime.now(timezone.utc)
-            
-            logger.error(f"Job {job_id} failed: {error_message}")
-            self._persist_jobs()
-    
+            with self._get_connection() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE jobs 
+                    SET status = ?, error_message = ?, updated_at = ?
+                    WHERE id = ?
+                """,
+                    (JobStatus.FAILED.value, error_message, datetime.now(timezone.utc).isoformat(), str(job_id)),
+                )
+
+                if cursor.rowcount == 0:
+                    raise ValueError(f"Job {job_id} not found")
+
+                conn.commit()
+
+        logger.error(f"Job {job_id} failed: {error_message}")
+
     def get_job(self, job_id: UUID) -> Optional[JobInfo]:
         """
         Get job information.
-        
+
         Args:
             job_id: Job identifier
-            
+
         Returns:
             JobInfo object if job exists, None otherwise
         """
         with self._lock:
-            return self._jobs.get(job_id)
-    
-    def list_jobs(self, status_filter: Optional[JobStatus] = None) -> Dict[UUID, JobInfo]:
-        """
-        List all jobs, optionally filtered by status.
-        
-        Args:
-            status_filter: Optional status to filter by
-            
-        Returns:
-            Dictionary of job_id -> JobInfo for matching jobs
-        """
-        with self._lock:
-            if status_filter is None:
-                return dict(self._jobs)
-            
-            return {
-                job_id: job_info 
-                for job_id, job_info in self._jobs.items()
-                if job_info.status == status_filter
-            }
-    
-    def cleanup_finished_jobs(self, max_age_hours: int = 24) -> int:
-        """
-        Remove finished jobs older than specified age.
-        
-        Args:
-            max_age_hours: Maximum age in hours for finished jobs
-            
-        Returns:
-            Number of jobs removed
-        """
-        cutoff_time = datetime.now(timezone.utc).replace(microsecond=0) - \
-                      timedelta(hours=max_age_hours)
-        
-        with self._lock:
-            to_remove = []
-            for job_id, job_info in self._jobs.items():
-                if job_info.is_finished and job_info.updated_at < cutoff_time:
-                    to_remove.append(job_id)
-            
-            for job_id in to_remove:
-                del self._jobs[job_id]
-            
-            if to_remove:
-                self._persist_jobs()
-                logger.info(f"Cleaned up {len(to_remove)} finished jobs older than {max_age_hours}h")
-            
-            return len(to_remove)
-    
-    def _get_job_unsafe(self, job_id: UUID) -> JobInfo:
-        """Get job without locking (internal use only)."""
-        job_info = self._jobs.get(job_id)
-        if job_info is None:
-            raise ValueError(f"Job {job_id} not found")
-        return job_info
-    
-    def _persist_jobs(self) -> None:
-        """Save jobs to persistence file if configured."""
-        if not self.persistence_file:
-            return
-        
-        try:
-            # Convert jobs to serializable format
-            jobs_data = {
-                str(job_id): job_info.to_dict()
-                for job_id, job_info in self._jobs.items()
-            }
-            
-            # Ensure directory exists
-            self.persistence_file.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Write to temporary file first, then rename for atomicity
-            temp_file = self.persistence_file.with_suffix('.tmp')
-            with temp_file.open('w') as f:
-                json.dump(jobs_data, f, indent=2)
-            
-            temp_file.replace(self.persistence_file)
-            
-        except Exception as e:
-            logger.error(f"Failed to persist jobs to {self.persistence_file}: {e}")
-    
-    def _load_jobs(self) -> None:
-        """Load jobs from persistence file."""
-        try:
-            with self.persistence_file.open('r') as f:
-                jobs_data = json.load(f)
-            
-            for job_id_str, job_dict in jobs_data.items():
-                try:
-                    job_id = UUID(job_id_str)
-                    job_info = JobInfo.from_dict(job_dict)
-                    self._jobs[job_id] = job_info
-                except Exception as e:
-                    logger.warning(f"Failed to load job {job_id_str}: {e}")
-                    
-        except Exception as e:
-            logger.error(f"Failed to load jobs from {self.persistence_file}: {e}")
+            with self._get_connection() as conn:
+                cursor = conn.execute("SELECT * FROM jobs WHERE id = ?", (str(job_id),))
+                row = cursor.fetchone()
+                return JobInfo.from_row(row) if row else None

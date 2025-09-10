@@ -5,7 +5,7 @@ Unit tests for HistoricalOptionClient methods.
 import pytest
 from decimal import Decimal
 
-from betedge_data.historical.option.client import HistoricalOptionClient
+from betedge_data.historical.option.option_client import HistoricalOptionClient
 from betedge_data.common.models import (
     OptionThetaDataResponse,
     StockThetaDataResponse,

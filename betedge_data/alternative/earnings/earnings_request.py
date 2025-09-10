@@ -6,10 +6,9 @@ from typing import Optional
 from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
-from betedge_data.common.interface import IRequest
 
 
-class EarningsRequest(BaseModel, IRequest):
+class EarningsRequest(BaseModel):
     """Request parameters for monthly earnings data."""
 
     # Required fields
@@ -35,6 +34,15 @@ class EarningsRequest(BaseModel, IRequest):
             Object key for the earnings data file
         """
         return f"earnings/{self.year}/{self.month:02d}/data.{self.return_format}"
+
+    def get_url(self) -> str:
+        """
+        Get the base URL for NASDAQ earnings API.
+
+        Returns:
+            Base URL for the earnings API
+        """
+        return "https://api.nasdaq.com/api/calendar/earnings"
 
 
 class EarningsRecord(BaseModel):

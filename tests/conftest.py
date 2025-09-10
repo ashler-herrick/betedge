@@ -16,7 +16,7 @@ import pyarrow.parquet as pq
 from minio import Minio
 
 from betedge_data.storage.config import MinIOConfig
-from betedge_data.manager.models import ExternalHistoricalOptionRequest
+from betedge_data.manager.external_models import ExternalHistoricalOptionRequest
 
 
 # ============= MinIO Fixtures =============

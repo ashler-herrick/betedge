@@ -12,8 +12,8 @@ import pyarrow.ipc as ipc
 import pyarrow as pa
 import polars as pl
 
-from betedge_data.historical.stock.client import HistoricalStockClient
-from betedge_data.historical.stock.models import HistStockRequest
+from betedge_data.historical.stock.stock_client import HistoricalStockClient
+from betedge_data.historical.stock.hist_stock_request import HistStockRequest
 
 
 @pytest.mark.integration
@@ -458,9 +458,7 @@ class TestHistoricalStockClientIntegration:
         parquet_result = stock_client.get_data(parquet_request)
 
         # Get IPC result
-        ipc_request = HistStockRequest(
-            root="AAPL", date=20231110, interval=60000, schema="quote", return_format="ipc"
-        )
+        ipc_request = HistStockRequest(root="AAPL", date=20231110, interval=60000, schema="quote", return_format="ipc")
         ipc_result = stock_client.get_data(ipc_request)
 
         # Both should return BytesIO
@@ -549,9 +547,7 @@ class TestHistoricalStockClientIntegration:
 
     def test_data_content_validation(self, stock_client):
         """Test detailed data content validation."""
-        request = HistStockRequest(
-            root="AAPL", date=20231110, interval=60000, schema="quote", return_format="parquet"
-        )
+        request = HistStockRequest(root="AAPL", date=20231110, interval=60000, schema="quote", return_format="parquet")
 
         result = stock_client.get_data(request)
         result.seek(0)

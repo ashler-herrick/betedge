@@ -2,40 +2,40 @@
 Pydantic models for data processing API requests and responses.
 """
 
-from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Sequence
 
 from pydantic import BaseModel, Field, field_validator
 from betedge_data.manager.utils import generate_month_list, generate_trading_date_list
-from betedge_data.historical.option.models import HistOptionBulkRequest
-from betedge_data.historical.stock.models import HistStockRequest
-from betedge_data.alternative.earnings.models import EarningsRequest
-from betedge_data.historical.option.client import HistoricalOptionClient
-from betedge_data.historical.stock.client import HistoricalStockClient
-from betedge_data.alternative.earnings.client import EarningsClient
-from betedge_data.common.interface import IClient, IRequest
+from betedge_data.historical.option.hist_option_bulk_request import HistOptionBulkRequest
+from betedge_data.historical.stock.hist_stock_request import HistStockRequest
+from betedge_data.alternative.earnings.earnings_request import EarningsRequest
+from betedge_data.historical.option.option_client import HistoricalOptionClient
+from betedge_data.historical.stock.stock_client import HistoricalStockClient
+from betedge_data.alternative.earnings.earnings_client import EarningsClient
+from betedge_data.common.interface import IRequest
+
+Client = HistoricalOptionClient | HistoricalStockClient | EarningsClient
+Request = HistOptionBulkRequest | HistStockRequest | EarningsRequest
 
 
-class ExternalBaseRequest(BaseModel, ABC):
-    """Abstract base class for all data processing requests."""
+class ExternalBaseRequest(BaseModel):
+    """Base class for all data processing requests."""
 
-    @abstractmethod
-    def get_subrequests(self) -> List[IRequest]:
+    def get_subrequests(self) -> Sequence[Request]:
         """
         Generate request objects that can be passed the ThetaData API.
 
         Returns:
-            List of Request objects
+            Sequence of Request objects
         """
-        pass
+        raise NotImplementedError("Subclasses must implement get_subrequests")
 
-    @abstractmethod
-    def get_client(self) -> IClient:
+    def get_client(self) -> Client:
         """
         Get the client for this request type.
         """
-        pass
+        raise NotImplementedError("Subclasses must implement get_client")
 
 
 class ExternalHistoricalOptionRequest(ExternalBaseRequest):
@@ -44,7 +44,7 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
     root: str = Field(..., description="Option root symbol (e.g., 'AAPL')")
     start_date: str = Field(..., description="Start date in YYYYMMDD format", pattern=r"^\d{8}$")
     end_date: str = Field(..., description="End date in YYYYMMDD format", pattern=r"^\d{8}$")
-    schema: str = Field(default="quote", description="Data schema type: options include 'quote', 'eod'")
+    data_schema: str = Field(..., description="Data schema type: options include 'quote', 'eod'")
     interval: int = Field(900_000, description="Interval in milliseconds (default 900000 for 15 minutes)", ge=0)
     return_format: str = Field("parquet", description="Return format for the request, either parquet or ipc.")
     start_time: Optional[int] = Field(None, description="Start time in milliseconds since midnight ET", ge=0)
@@ -72,12 +72,12 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
             raise ValueError("end_date must be >= start_date")
         return v
 
-    @field_validator("schema")
+    @field_validator("data_schema")
     @classmethod
-    def validate_schema(cls, v: str) -> str:
-        """Validate schema is supported."""
+    def validate_data_schema(cls, v: str) -> str:
+        """Validate data_schema is supported."""
         if v not in ["quote", "eod"]:
-            raise ValueError(f"schema must be 'quote', 'ohlc', or 'eod', got '{v}'")
+            raise ValueError(f"data_schema must be 'quote', 'ohlc', or 'eod', got '{v}'")
         return v
 
     def __init__(self, **data):
@@ -87,7 +87,7 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
 
     def _compute_requests(self) -> List[HistOptionBulkRequest]:
         """Compute the list of requests."""
-        if self.schema == "eod":
+        if self.data_schema == "eod":
             # For EOD, create one request per month (due to option data size)
             start_yearmo = int(self.start_date[:6])  # YYYYMM from YYYYMMDD
             end_yearmo = int(self.end_date[:6])
@@ -101,10 +101,11 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
                 requests.append(
                     HistOptionBulkRequest(
                         root=self.root,
+                        date=None,  # Explicitly None for EOD (uses yearmo instead)
                         yearmo=current_yearmo,
                         interval=self.interval,  # Not used for EOD
                         return_format=self.return_format,
-                        schema=self.schema,
+                        data_schema=self.data_schema,
                     )
                 )
                 # Increment to next month
@@ -120,9 +121,10 @@ class ExternalHistoricalOptionRequest(ExternalBaseRequest):
                 HistOptionBulkRequest(
                     root=self.root,
                     date=date,
+                    yearmo=None,  # Explicitly None for regular requests (uses date instead)
                     interval=self.interval,
                     return_format=self.return_format,
-                    schema=self.schema,
+                    data_schema=self.data_schema,
                 )
                 for date in dates
             ]
@@ -150,7 +152,9 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
     root: str = Field(..., description="Stock symbol (e.g., 'AAPL')")
     start_date: str = Field(..., description="Start date in YYYYMMDD format", pattern=r"^\d{8}$")
     end_date: str = Field(..., description="End date in YYYYMMDD format", pattern=r"^\d{8}$")
-    schema: str = Field(default="quote", description="Data schema type: options include 'quote', 'ohlc', 'eod'")
+    data_schema: str = Field(
+        default="quote", description="Data data_schema type: options include 'quote', 'ohlc', 'eod'"
+    )
     interval: int = Field(60_000, description="Interval in milliseconds (default 60000 for 1 minute)", ge=0)
     return_format: str = Field("parquet", description="Return format for the request, either parquet or ipc.")
     start_time: Optional[int] = Field(None, description="Start time in milliseconds since midnight ET", ge=0)
@@ -169,12 +173,12 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
             raise ValueError(f"Invalid date format: {v}. Expected YYYYMMDD format")
         return v
 
-    @field_validator("schema")
+    @field_validator("data_schema")
     @classmethod
-    def validate_schema(cls, v: str) -> str:
-        """Validate schema is supported."""
+    def validate_data_schema(cls, v: str) -> str:
+        """Validate data_schema is supported."""
         if v not in ["quote", "ohlc", "eod"]:
-            raise ValueError(f"schema must be 'quote', 'ohlc', or 'eod', got '{v}'")
+            raise ValueError(f"data_schema must be 'quote', 'ohlc', or 'eod', got '{v}'")
         return v
 
     @field_validator("end_date")
@@ -193,7 +197,7 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
 
     def _compute_requests(self) -> List[HistStockRequest]:
         """Compute the list of requests."""
-        if self.schema == "eod":
+        if self.data_schema == "eod":
             # For EOD, create one request per year to leverage yearly aggregation
             start_year = int(self.start_date[:4])
             end_year = int(self.end_date[:4])
@@ -204,10 +208,11 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
                 requests.append(
                     HistStockRequest(
                         root=self.root,
-                        date=int(f"{year}0101"),
+                        date=None,  # Explicitly None for EOD (uses year instead)
+                        year=year,
+                        data_schema=self.data_schema,
                         interval=self.interval,  # Not used for EOD but required by model
                         return_format=self.return_format,
-                        schema=self.schema,
                     )
                 )
             return requests
@@ -218,9 +223,10 @@ class ExternalHistoricalStockRequest(ExternalBaseRequest):
                 HistStockRequest(
                     root=self.root,
                     date=date,
+                    year=None,  # Explicitly None for regular requests (uses date instead)
                     interval=self.interval,
                     return_format=self.return_format,
-                    schema=self.schema,
+                    data_schema=self.data_schema,
                 )
                 for date in dates
             ]

@@ -11,8 +11,8 @@ import pyarrow.parquet as pq
 import pyarrow.ipc as ipc
 import pyarrow as pa
 
-from betedge_data.historical.option.client import HistoricalOptionClient
-from betedge_data.historical.option.models import HistOptionBulkRequest
+from betedge_data.historical.option.option_client import HistoricalOptionClient
+from betedge_data.historical.option.hist_option_bulk_request import HistOptionBulkRequest
 
 
 @pytest.mark.integration

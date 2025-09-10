@@ -6,14 +6,13 @@ data requests through the ThetaData clients.
 """
 
 import logging
-import os
 from contextlib import asynccontextmanager
 from uuid import uuid4, UUID
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
-from betedge_data.manager.models import (
+from betedge_data.manager.external_models import (
     ExternalHistoricalOptionRequest,
     ExternalHistoricalStockRequest,
     ExternalEarningsRequest,
@@ -25,10 +24,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# Global service instance
-service: DataProcessingService = None
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan - startup and shutdown."""
@@ -37,13 +32,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting data processing service")
 
-    # Check for force refresh environment variable
-    force_refresh = os.getenv("FORCE_REFRESH", "false").lower() in ("true", "1", "yes")
-
-    if force_refresh:
-        logger.info("Force refresh mode enabled via FORCE_REFRESH environment variable")
-
-    service = DataProcessingService(force_refresh=force_refresh)
+    service = DataProcessingService()
 
     yield
 
@@ -108,12 +97,12 @@ async def process_historical_option(request: ExternalHistoricalOptionRequest):
     try:
         # Start background processing (non-blocking)
         await service.process_request(request, request_id)
-        
+
         return {
-            "status": "accepted", 
+            "status": "accepted",
             "job_id": str(request_id),
             "message": "Request submitted for background processing",
-            "status_url": f"/jobs/{request_id}"
+            "status_url": f"/jobs/{request_id}",
         }
     except Exception as e:
         logger.error(f"Error submitting request {request_id}: {e}")
@@ -137,12 +126,12 @@ async def process_historical_stock(request: ExternalHistoricalStockRequest):
     try:
         # Start background processing (non-blocking)
         await service.process_request(request, request_id)
-        
+
         return {
-            "status": "accepted", 
+            "status": "accepted",
             "job_id": str(request_id),
             "message": "Request submitted for background processing",
-            "status_url": f"/jobs/{request_id}"
+            "status_url": f"/jobs/{request_id}",
         }
     except Exception as e:
         logger.error(f"Error submitting request {request_id}: {e}")
@@ -166,12 +155,12 @@ async def process_earnings(request: ExternalEarningsRequest):
     try:
         # Start background processing (non-blocking)
         await service.process_request(request, request_id)
-        
+
         return {
-            "status": "accepted", 
+            "status": "accepted",
             "job_id": str(request_id),
             "message": "Request submitted for background processing",
-            "status_url": f"/jobs/{request_id}"
+            "status_url": f"/jobs/{request_id}",
         }
     except Exception as e:
         logger.error(f"Error submitting request {request_id}: {e}")
@@ -191,36 +180,29 @@ async def get_job_status(job_id: str):
     try:
         job_uuid = UUID(job_id)
         job_info = service.get_job_status(job_uuid)
-        
+
         if not job_info:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Job {job_id} not found"
-            )
-        
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Job {job_id} not found")
+
         return {
             "job_id": str(job_info.job_id),
             "status": job_info.status,
             "progress": {
                 "completed": job_info.completed_items,
                 "total": job_info.total_items,
-                "percentage": job_info.progress_percentage
+                "percentage": job_info.progress_percentage,
             },
             "created_at": job_info.created_at.isoformat(),
             "updated_at": job_info.updated_at.isoformat(),
-            "error_message": job_info.error_message
+            "error_message": job_info.error_message,
         }
-        
+
     except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid job ID format"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid job ID format")
     except Exception as e:
         logger.error(f"Error getting job status {job_id}: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get job status: {str(e)}"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to get job status: {str(e)}"
         )
 
 

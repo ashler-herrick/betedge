@@ -28,7 +28,7 @@ import pyarrow as pa
 import polars as pl
 
 from betedge_data.storage.config import MinIOConfig
-from betedge_data.manager.models import ExternalEarningsRequest
+from betedge_data.manager.external_models import ExternalEarningsRequest
 from tests.e2e.utils import (
     validate_async_response,
     validate_job_completion_for_minio,
@@ -427,12 +427,12 @@ def validate_response(response_data: Dict, start_date: str, end_date: str) -> Tu
     """
     # Use shared async response validation
     success = validate_async_response(response_data, f"earnings request for {start_date} to {end_date}")
-    
+
     if success:
         print(f"✓ Request accepted for processing date range {start_date} to {end_date}")
         print("✓ Data will be published to MinIO storage asynchronously")
         return True, response_data.get("job_id", "")
-    
+
     return False, ""
 
 
@@ -460,7 +460,7 @@ def display_test_summary(
     status = "PASSED" if success else "FAILED"
     icon = "🎉" if success else "❌"
     print(f"  {icon} Overall result: {status}")
-    
+
     # Display job timing info if available
     if job_data:
         display_job_timing_info(job_data, total_time)
@@ -535,9 +535,7 @@ def test_earnings_month_e2e():
     # Step 5: Wait for background job completion
     logger.info("Step 5: Waiting for background job completion...")
     expected_object_keys = generate_expected_object_keys(start_date, end_date)
-    job_success, job_data = validate_job_completion_for_minio(
-        API_BASE_URL, job_id, len(expected_object_keys)
-    )
+    job_success, job_data = validate_job_completion_for_minio(API_BASE_URL, job_id, len(expected_object_keys))
     assert job_success, "Background job did not complete successfully"
 
     # Step 6: Validate MinIO data with comprehensive validation

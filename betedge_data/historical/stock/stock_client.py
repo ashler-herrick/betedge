@@ -1,6 +1,5 @@
 import io
 import logging
-from urllib.parse import urlencode
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -9,25 +8,25 @@ import pyarrow.ipc as ipc
 from betedge_data.common.http import get_http_client
 from betedge_data.common.models import StockThetaDataResponse, TICK_SCHEMAS
 from betedge_data.common.exceptions import NoDataAvailableError
-from betedge_data.historical.config import HistoricalClientConfig
-from betedge_data.historical.stock.models import HistStockRequest
-from betedge_data.common.interface import IClient, IRequest
+from betedge_data.historical.config import HistoricalConfig
+from betedge_data.historical.stock.hist_stock_request import HistStockRequest
+from betedge_data.common.interface import IRequest
 
 
 logger = logging.getLogger(__name__)
 
 
-class HistoricalStockClient(IClient):
+class HistoricalStockClient:
     """Client for fetching historical stock quote data from ThetaData API."""
 
     def __init__(self):
         """
         Initialize the historical stock client.
         """
-        self.config = HistoricalClientConfig()
+        self.config = HistoricalConfig()
         self.http_client = get_http_client()
 
-    def get_data(self, request: IRequest) -> io.BytesIO:
+    def get_data(self, request: HistStockRequest) -> io.BytesIO:
         """
         Get stock data and return as Parquet or IPC bytes for streaming.
         This is the single orchestrator method (the "dirty place").
@@ -42,18 +41,18 @@ class HistoricalStockClient(IClient):
         if not isinstance(request, HistStockRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
 
-        logger.info(f"Starting data fetch for {request.root} schema={request.schema}")
+        logger.info(f"Starting data fetch for {request.root} data_schema={request.data_schema}")
 
         try:
-            # Step 1: Build URL (delegates to pure function)
-            url = self._build_url(request)
+            # Step 1: Build URL (delegates to request object)
+            url = request.get_url()
 
             # Step 2: Fetch data (delegates to pure function)
             stock_data = self._fetch_data(url)
             logger.debug(f"Data fetch complete - {len(stock_data.response)} records")
 
             # Step 3: Convert to Arrow table (delegates to pure function)
-            table = self._convert_to_table(stock_data, request.schema)
+            table = self._convert_to_table(stock_data, request.data_schema)
 
             # Step 4: Serialize to requested format (orchestrate format selection)
             if request.return_format == "parquet":
@@ -83,35 +82,13 @@ class HistoricalStockClient(IClient):
             url=url, response_model=StockThetaDataResponse, stream_response=False, collect_items=True
         )
 
-    def _build_url(self, request: HistStockRequest) -> str:
-        """Build URL for ThetaData historical stock endpoint (pure function)."""
-        if request.schema == "eod":
-            # EOD endpoint uses year range
-            start_date, end_date = request.get_date_range_for_eod()
-            params = {
-                "root": request.root,
-                "start_date": start_date,
-                "end_date": end_date,
-            }
-            base_url = f"{self.config.base_url}/hist/stock/eod"
-        else:
-            # Regular endpoints use single date + interval
-            params = {
-                "root": request.root,
-                "start_date": request.date,
-                "end_date": request.date,
-                "ivl": request.interval,
-            }
-            base_url = f"{self.config.base_url}/hist/stock/{request.schema}"
-
-        return f"{base_url}?{urlencode(params)}"
 
     def _convert_to_table(self, stock_data: StockThetaDataResponse, endpoint: str) -> pa.Table:
         """Convert stock data to Arrow table (pure function)."""
-        # Get schema configuration
-        schema = TICK_SCHEMAS[endpoint]
-        field_names = schema["field_names"]
-        arrow_types = schema["arrow_types"]
+        # Get data_schema configuration
+        data_schema = TICK_SCHEMAS[endpoint]
+        field_names = data_schema["field_names"]
+        arrow_types = data_schema["arrow_types"]
 
         response_data = stock_data.response
         if not response_data:
@@ -152,7 +129,7 @@ class HistoricalStockClient(IClient):
     def _write_ipc(self, table: pa.Table) -> io.BytesIO:
         """Write Arrow table to IPC format (pure function)."""
         buffer = io.BytesIO()
-        with ipc.new_file(buffer, table.schema) as writer:
+        with ipc.new_file(buffer, table.data_schema) as writer:
             writer.write_table(table)
         buffer.seek(0)
         return buffer

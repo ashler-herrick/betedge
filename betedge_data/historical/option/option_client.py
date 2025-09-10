@@ -1,8 +1,5 @@
 import io
 import logging
-from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
-from urllib.parse import urlencode
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -11,16 +8,15 @@ import pyarrow.ipc as ipc
 from betedge_data.common.http import get_http_client
 from betedge_data.common.models import OptionThetaDataResponse, StockThetaDataResponse, TICK_SCHEMAS, CONTRACT_SCHEMA
 from betedge_data.common.exceptions import NoDataAvailableError
-from betedge_data.historical.config import HistoricalClientConfig
-from betedge_data.historical.option.models import HistOptionBulkRequest
-from betedge_data.historical.stock.client import HistoricalStockClient
-from betedge_data.historical.stock.models import HistStockRequest
-from betedge_data.common.interface import IClient
+from betedge_data.historical.config import get_hist_client_config
+from betedge_data.historical.option.hist_option_bulk_request import HistOptionBulkRequest
+from betedge_data.historical.stock.hist_stock_request import HistStockRequest
+from betedge_data.historical.stock.stock_client import HistoricalStockClient
 
 logger = logging.getLogger(__name__)
 
 
-class HistoricalOptionClient(IClient):
+class HistoricalOptionClient:
     """Client for fetching and filtering historical option data from ThetaData API."""
 
     def __init__(self):
@@ -30,7 +26,7 @@ class HistoricalOptionClient(IClient):
         Args:
             config: Configuration instance, uses default if None
         """
-        self.config = HistoricalClientConfig()
+        self.config = get_hist_client_config()
         self.max_workers = self.config.max_concurrent_requests
         self.http_client = get_http_client()
         self.stock_client = HistoricalStockClient()
@@ -50,29 +46,24 @@ class HistoricalOptionClient(IClient):
         if not isinstance(request, HistOptionBulkRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
 
-        logger.info(f"Starting data fetch for {request.root} schema={request.schema}")
+        logger.info(f"Starting data fetch for {request.root} data_schema={request.data_schema}")
 
         try:
             # Step 1: Build URL (delegates to pure function)
-            url = self._build_url(request)
+            url = request.get_url()
 
             # Step 2: Fetch data (delegates to pure function)
             option_data = self._fetch_data(url)
             logger.debug(f"Option data fetch complete - {len(option_data.response)} records")
 
-            # Step 3: Handle stock data if needed (for non-EOD endpoints)
-            if request.schema == "eod":
-                # EOD endpoint is standalone, no stock data needed
-                stock_data = None
-                logger.debug("EOD endpoint - skipping stock data fetch")
-            else:
-                # Regular endpoints need stock data for filtering
-                stock_url = self._build_stock_url(request)
-                stock_data = self.stock_client._fetch_data(stock_url)
-                logger.debug(f"Stock data fetch complete - {len(stock_data.response)} records")
+            # Step 3: Handle stock data if needed
+            stock_request = self._create_stock_request(request)
+            stock_url = stock_request.get_url()
+            stock_data = self.stock_client._fetch_data(stock_url)
+            logger.debug(f"Stock data fetch complete - {len(stock_data.response)} records")
 
             # Step 4: Convert to Arrow table (delegates to pure function)
-            table = self._convert_to_table(option_data, stock_data, request.schema)
+            table = self._convert_to_table(option_data, stock_data, request.data_schema)
 
             # Step 5: Serialize to requested format (orchestrate format selection)
             if request.return_format == "parquet":
@@ -97,88 +88,12 @@ class HistoricalOptionClient(IClient):
             raise RuntimeError(f"Data processing failed: {e}") from e
 
     def _convert_to_table(
-        self, option_data: OptionThetaDataResponse, stock_data: Optional[StockThetaDataResponse], endpoint: str
-    ) -> pa.Table:
-        """Convert option data to Arrow table (pure function)."""
-        if endpoint == "eod":
-            # For EOD, only process option data (no stock data needed)
-            return self._convert_option_only_to_table(option_data, endpoint)
-        else:
-            # For regular endpoints, combine option and stock data
-            return self._convert_option_and_stock_to_table(option_data, stock_data, endpoint)
-
-    def _convert_option_only_to_table(self, option_data: OptionThetaDataResponse, endpoint: str) -> pa.Table:
-        """Convert option-only data to Arrow table (for EOD endpoint)."""
-        # Get schema configuration
-        schema = TICK_SCHEMAS[endpoint]
-        field_names = schema["field_names"]
-        arrow_types = schema["arrow_types"]
-
-        # Extract all option ticks and contract info
-        all_option_ticks = []
-        contract_info = []
-        for option_item in option_data.response:
-            ticks = option_item.ticks
-            contract = option_item.contract
-            all_option_ticks.extend(ticks)
-            # Repeat contract info for each tick
-            contract_info.extend([contract] * len(ticks))
-
-        if not all_option_ticks:
-            raise RuntimeError("No option data to convert")
-
-        # Apply columnar transposition for tick data
-        option_columns = list(zip(*all_option_ticks))
-
-        # Create tick field arrays
-        tick_arrays = []
-        for i, (field_name, arrow_type) in enumerate(zip(field_names, arrow_types)):
-            if field_name in [
-                "ms_of_day",
-                "ms_of_day2",
-                "date",
-                "volume",
-                "count",
-                "bid_size",
-                "ask_size",
-                "bid_exchange",
-                "ask_exchange",
-                "bid_condition",
-                "ask_condition",
-            ]:
-                tick_arrays.append(pa.array([int(x) for x in option_columns[i]], type=arrow_type))
-            else:  # float fields
-                tick_arrays.append(pa.array([float(x) for x in option_columns[i]], type=arrow_type))
-
-        # Add contract fields
-        contract_schema = CONTRACT_SCHEMA
-        contract_field_names = contract_schema["field_names"]
-        contract_arrow_types = contract_schema["arrow_types"]
-
-        contract_arrays = []
-        for field_name, arrow_type in zip(contract_field_names, contract_arrow_types):
-            if field_name == "root":
-                contract_arrays.append(pa.array([c.root for c in contract_info], type=arrow_type))
-            elif field_name == "expiration":
-                contract_arrays.append(pa.array([c.expiration for c in contract_info], type=arrow_type))
-            elif field_name == "strike":
-                contract_arrays.append(pa.array([c.strike for c in contract_info], type=arrow_type))
-            elif field_name == "right":
-                contract_arrays.append(pa.array([c.right for c in contract_info], type=arrow_type))
-
-        # Combine all arrays and field names
-        all_arrays = tick_arrays + contract_arrays
-        all_field_names = field_names + contract_field_names
-
-        return pa.Table.from_arrays(all_arrays, names=all_field_names)
-
-    def _convert_option_and_stock_to_table(
         self, option_data: OptionThetaDataResponse, stock_data: StockThetaDataResponse, endpoint: str
     ) -> pa.Table:
         """Convert option and stock data to Arrow table (for regular endpoints)."""
         # Use existing flattening logic for backward compatibility
         flattened_data = self._flatten_option_data(option_data, stock_data, endpoint)
-        return self._create_arrow_table(flattened_data, schema_type=endpoint)
+        return self._create_arrow_table(flattened_data, data_schema_type=endpoint)
 
     def _write_parquet(self, table: pa.Table) -> io.BytesIO:
         """Write Arrow table to Parquet format (pure function)."""
@@ -190,7 +105,7 @@ class HistoricalOptionClient(IClient):
     def _write_ipc(self, table: pa.Table) -> io.BytesIO:
         """Write Arrow table to IPC format (pure function)."""
         buffer = io.BytesIO()
-        with ipc.new_file(buffer, table.schema) as writer:
+        with ipc.new_file(buffer, table.data_schema) as writer:
             writer.write_table(table)
         buffer.seek(0)
         return buffer
@@ -204,7 +119,7 @@ class HistoricalOptionClient(IClient):
         Args:
             option_data: OptionThetaDataResponse containing option data
             stock_data: StockThetaDataResponse containing stock data
-            endpoint: Endpoint type ("quote" or "ohlc") to determine schema
+            endpoint: Endpoint type ("quote" or "ohlc") to determine data_schema
 
         Returns:
             Dict with lists of flattened tick data
@@ -212,13 +127,13 @@ class HistoricalOptionClient(IClient):
         option_count = len(option_data.response)
         stock_count = len(stock_data.response)
         logger.debug(
-            f"Flattening {option_count} option contracts and {stock_count} stock records using {endpoint} schema"
+            f"Flattening {option_count} option contracts and {stock_count} stock records using {endpoint} data_schema"
         )
 
-        # Get schema configuration for the endpoint
-        schema = TICK_SCHEMAS[endpoint]
-        field_count = schema["field_count"]
-        field_names = schema["field_names"]
+        # Get data_schema configuration for the endpoint
+        data_schema = TICK_SCHEMAS[endpoint]
+        field_count = data_schema["field_count"]
+        field_names = data_schema["field_names"]
 
         # Extract all option ticks and contract info using batch operations
         all_option_ticks = []
@@ -253,7 +168,7 @@ class HistoricalOptionClient(IClient):
         strike_column = [contract.strike for contract in contract_info] + [0] * len(stock_data.response)
         right_column = [contract.right for contract in contract_info] + ["U"] * len(stock_data.response)
 
-        # Create final data structure with batch type conversions using schema field names
+        # Create final data structure with batch type conversions using data_schema field names
         flattened_data = {}
         for i, field_name in enumerate(field_names):
             # Apply appropriate type conversion based on field type
@@ -280,13 +195,13 @@ class HistoricalOptionClient(IClient):
         logger.debug(f"Flattened to {len(flattened_data['ms_of_day'])} total tick records")
         return flattened_data
 
-    def _create_arrow_table(self, flattened_data: dict, schema_type: str = "quote") -> pa.Table:
+    def _create_arrow_table(self, flattened_data: dict, data_schema_type: str = "quote") -> pa.Table:
         """
-        Create PyArrow table from flattened option/stock data using schema configuration.
+        Create PyArrow table from flattened option/stock data using data_schema configuration.
 
         Args:
             flattened_data: Dict with lists of flattened tick data
-            schema_type: Schema type ("quote" or "ohlc") to determine field structure
+            data_schema_type: data_schema type ("quote" or "ohlc") to determine field structure
 
         Returns:
             PyArrow Table ready for serialization
@@ -298,13 +213,13 @@ class HistoricalOptionClient(IClient):
             logger.error("No data found in flattened data")
             raise RuntimeError("No data to convert")
 
-        # Get schema configurations
-        tick_schema = TICK_SCHEMAS[schema_type]
-        contract_schema = CONTRACT_SCHEMA
+        # Get data_schema configurations
+        tick_data_schema = TICK_SCHEMAS[data_schema_type]
+        contract_data_schema = CONTRACT_SCHEMA
 
         # Combine tick and contract field definitions
-        all_field_names = tick_schema["field_names"] + contract_schema["field_names"]
-        all_arrow_types = tick_schema["arrow_types"] + contract_schema["arrow_types"]
+        all_field_names = tick_data_schema["field_names"] + contract_data_schema["field_names"]
+        all_arrow_types = tick_data_schema["arrow_types"] + contract_data_schema["arrow_types"]
 
         # Create Arrow arrays with proper types
         arrays = []
@@ -319,8 +234,38 @@ class HistoricalOptionClient(IClient):
         # Create table
         table = pa.Table.from_arrays(arrays, names=all_field_names)
         total_records = len(flattened_data.get("ms_of_day", []))
-        logger.debug(f"Created Arrow table with {total_records} records using {schema_type} schema")
+        logger.debug(f"Created Arrow table with {total_records} records using {data_schema_type} data_schema")
         return table
+
+    def _create_stock_request(self, option_request: HistOptionBulkRequest) -> HistStockRequest:
+        """
+        Create a HistStockRequest from a HistOptionBulkRequest.
+        
+        Args:
+            option_request: The option request to derive stock parameters from
+            
+        Returns:
+            HistStockRequest with appropriate parameters for fetching underlying stock data
+        """
+        # For stock data, we typically want the same date and schema as the option request
+        stock_request_params = {
+            "root": option_request.root,
+            "data_schema": option_request.data_schema,
+            "return_format": option_request.return_format,
+            "interval": option_request.interval,
+        }
+        
+        # Handle date vs yearmo logic
+        if option_request.date is not None:
+            stock_request_params["date"] = option_request.date
+        elif option_request.yearmo is not None:
+            # For EOD with yearmo, we can extract year for stock request
+            year = option_request.yearmo // 100
+            stock_request_params["year"] = year
+        else:
+            raise ValueError("Option request must have either date or yearmo specified")
+            
+        return HistStockRequest(**stock_request_params)
 
     def _fetch_data(self, url: str) -> OptionThetaDataResponse:
         """Fetch option data from URL (pure function, no error handling)."""
@@ -330,36 +275,4 @@ class HistoricalOptionClient(IClient):
             stream_response=True,
             item_path="response.item",
             collect_items=True,
-        )
-
-    def _build_url(self, request: HistOptionBulkRequest) -> str:
-        """Build URL for ThetaData option endpoint (pure function)."""
-        if request.schema == "eod":
-            # EOD endpoint uses month range
-            start_date, end_date = request.get_date_range_for_eod()
-            params = {
-                "root": request.root,
-                "exp": request.exp,
-                "start_date": start_date,
-                "end_date": end_date,
-            }
-            base_url = f"{self.config.base_url}/bulk_hist/option/eod"
-        else:
-            # Regular endpoints use single date + interval
-            params = {
-                "root": request.root,
-                "exp": request.exp,
-                "start_date": request.date,
-                "end_date": request.date,
-            }
-            if request.interval is not None:
-                params["ivl"] = request.interval
-            base_url = f"{self.config.base_url}/bulk_hist/option/{request.schema}"
-
-        return f"{base_url}?{urlencode(params)}"
-
-    def _build_stock_url(self, request: HistOptionBulkRequest) -> str:
-        """Build stock URL for non-EOD requests (pure function)."""
-        return self.stock_client._build_url(
-            HistStockRequest(root=request.root, date=request.date, interval=request.interval, schema=request.schema)
         )

@@ -10,7 +10,7 @@ import logging
 from typing import Optional, Set
 from uuid import UUID
 
-from betedge_data.manager.models import ExternalBaseRequest
+from betedge_data.manager.external_models import ExternalBaseRequest
 from betedge_data.manager.job_tracker import JobTracker, JobInfo, JobStatus
 from betedge_data.storage.publisher import MinIOPublisher
 from betedge_data.common.exceptions import NoDataAvailableError
@@ -32,7 +32,7 @@ class DataProcessingService:
         self.publisher = MinIOPublisher()
         self.job_tracker = JobTracker()
         self._background_tasks: Set[asyncio.Task] = set()
-        logger.info("DataProcessingService initialized with async background job support")
+        logger.info("DataProcessingService initialized.")
 
     async def process_request(self, request: ExternalBaseRequest, request_id: UUID) -> None:
         """
@@ -47,12 +47,12 @@ class DataProcessingService:
         # Create job entry
         individual_requests = request.get_subrequests()
         self.job_tracker.create_job(request_id, len(individual_requests))
-        
+
         # Start background processing
         task = asyncio.create_task(self._process_request_background(request, request_id))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
-        
+
         logger.info(f"Background job {request_id} started with {len(individual_requests)} items")
 
     async def _process_request_background(self, request: ExternalBaseRequest, request_id: UUID) -> None:
@@ -67,7 +67,7 @@ class DataProcessingService:
             self.job_tracker.update_status(request_id, JobStatus.RUNNING)
             individual_requests = request.get_subrequests()
             client = request.get_client()
-            
+
             completed = 0
             for req in individual_requests:
                 try:
@@ -92,7 +92,7 @@ class DataProcessingService:
 
                     completed += 1
                     self.job_tracker.update_progress(request_id, completed)
-                    
+
                     logger.info(f"Processed {completed}/{len(individual_requests)} items for job {request_id}")
 
                 except NoDataAvailableError:
@@ -108,10 +108,10 @@ class DataProcessingService:
                     completed += 1
                     self.job_tracker.update_progress(request_id, completed)
                     continue
-            
+
             self.job_tracker.mark_completed(request_id)
             logger.info(f"Background job {request_id} completed successfully")
-            
+
         except Exception as e:
             self.job_tracker.mark_failed(request_id, str(e))
             logger.error(f"Background job {request_id} failed: {e}")
@@ -135,11 +135,11 @@ class DataProcessingService:
             logger.info(f"Cancelling {len(self._background_tasks)} background tasks")
             for task in self._background_tasks.copy():
                 task.cancel()
-            
+
             # Wait for tasks to complete cancellation
             if self._background_tasks:
                 await asyncio.gather(*self._background_tasks, return_exceptions=True)
-        
+
         await self.publisher.close()
         logger.info("DataProcessingService closed")
 

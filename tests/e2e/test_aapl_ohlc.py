@@ -1,4 +1,4 @@
-from typing import Dict, Tuple
+from typing import Dict
 import requests
 import time
 import pytest
@@ -27,14 +27,14 @@ def make_ohlc_request() -> Dict:
         API response data
     """
     # Convert years to date format expected by unified endpoint
-    start_date = f"20230101"
-    end_date = f"20230201"
+    start_date = "20230101"
+    end_date = "20230201"
 
     payload = {
         "root": "AAPL",
         "start_date": start_date,
         "end_date": end_date,
-        "schema": "ohlc",
+        "data_schema": "ohlc",
         "interval": 4_500_000,
         "return_format": "parquet",
     }
@@ -77,9 +77,9 @@ def make_ohlc_request() -> Dict:
 def test_aapl_ohlc_e2e():
     """Run the end-to-end AAPL OHLC test."""
     print("🚀 Starting End-to-End AAPL OHLC Test")
-    
+
     total_start_time = time.time()
-    
+
     # Step 1: Check API health
     print("Step 1: Checking API health...")
     try:
@@ -88,26 +88,28 @@ def test_aapl_ohlc_e2e():
         print("✓ API is healthy")
     except Exception as e:
         assert False, f"API health check failed: {e}"
-    
+
     # Step 2: Make OHLC request
     print("Step 2: Making OHLC request...")
     response_data = make_ohlc_request()
-    
+
     # Step 3: Validate async response
     print("Step 3: Validating async response...")
     success = validate_async_response(response_data, "OHLC request")
     assert success, "Async response validation failed"
-    
+
     job_id = response_data.get("job_id", "")
     assert job_id, "No job ID received from async response"
-    
+
     # Step 4: Wait for background job completion
     print("Step 4: Waiting for background job completion...")
     job_success, job_data = validate_job_completion_for_minio(
-        API_BASE_URL, job_id, 1  # OHLC typically processes 1 month
+        API_BASE_URL,
+        job_id,
+        1,  # OHLC typically processes 1 month
     )
     assert job_success, "Background job did not complete successfully"
-    
+
     # Step 5: Display summary
     total_time = time.time() - total_start_time
     print("=" * 50)
@@ -118,12 +120,12 @@ def test_aapl_ohlc_e2e():
     print("  Data type: OHLC")
     print("  Date range: 2023-01-01 to 2023-02-01")
     print()
-    
+
     if job_data:
         display_job_timing_info(job_data, total_time)
     else:
         print(f"  🕐 Total Test Time: {total_time:.1f}s")
-    
+
     print("\n✅ End-to-end OHLC workflow verified successfully!")
     print("✅ Async background job processing working")
     print("✅ Job completion tracking working")

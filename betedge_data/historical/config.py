@@ -3,11 +3,12 @@ Historical stock data configuration.
 """
 
 import os
+from typing import Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
-class HistoricalClientConfig(BaseSettings):
+class HistoricalConfig(BaseSettings):
     """Configuration for historical stock data client."""
 
     base_url: str = Field(
@@ -33,3 +34,14 @@ class HistoricalClientConfig(BaseSettings):
         "env_file_encoding": "utf-8",
         "extra": "ignore",
     }
+
+
+_config: Optional[HistoricalConfig] = None
+
+
+def get_hist_client_config() -> HistoricalConfig:
+    global _config
+    if _config is None:
+        _config = HistoricalConfig()
+
+    return _config
