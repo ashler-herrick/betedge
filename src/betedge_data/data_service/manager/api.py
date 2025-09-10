@@ -13,13 +13,13 @@ from uuid import uuid4, UUID
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
-from betedge_data.manager.external_models import (
+from betedge_data.data_service.manager.external_models import (
     ExternalHistoricalOptionRequest,
     ExternalHistoricalStockRequest,
     ExternalEarningsRequest,
 )
-from betedge_data.manager.service import DataProcessingService
-from betedge_data.manager.job_tracker import JobStatus
+from betedge_data.data_service.manager.service import DataProcessingService
+from betedge_data.data_service.manager.job_tracker import JobStatus
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

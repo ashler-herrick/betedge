@@ -5,7 +5,7 @@ from typing import List, Literal, Union, Optional, Any
 import pyarrow as pa
 from pydantic import BaseModel
 
-from betedge_data.common.utils import generate_schema_from_model
+from betedge_data.data_service.common.utils import generate_schema_from_model
 
 
 class Header(BaseModel):
@@ -141,7 +141,7 @@ class ThetaDataResponse(BaseModel):
 
     def has_next_page(self) -> bool:
         """Check if there's a next page."""
-        return self.header.next_page and self.header.next_page.lower() != "null"
+        return bool(self.header.next_page and self.header.next_page.lower() != "null")
 
 
 class OptionResponseItem(BaseModel):

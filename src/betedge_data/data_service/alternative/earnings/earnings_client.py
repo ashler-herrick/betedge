@@ -7,10 +7,10 @@ import httpx
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from betedge_data.alternative.earnings.earnings_request import EarningsRequest, EarningsRecord
-from betedge_data.common.http import get_http_client
-from betedge_data.manager.utils import generate_trading_date_list
-from betedge_data.common.interface import IRequest
+from betedge_data.data_service.alternative.earnings.earnings_request import EarningsRequest, EarningsRecord
+from betedge_data.data_service.common.http import get_http_client
+from betedge_data.data_service.manager.utils import generate_trading_date_list
+from betedge_data.data_service.common.interface import IRequest
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,9 @@ class EarningsClient:
         Returns:
             BytesIO containing Parquet data ready for streaming
         """
+        if not isinstance(request, EarningsRequest):
+            raise ValueError(f"Unsupported request type: {type(request)}")
+        
         logger.info(f"Starting monthly earnings data fetch for {request.year}-{request.month:02d}")
 
         # Validate return format

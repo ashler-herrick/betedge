@@ -5,14 +5,14 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.ipc as ipc
 
-from betedge_data.common.http import get_http_client
-from betedge_data.common.models import OptionThetaDataResponse, StockThetaDataResponse, TICK_SCHEMAS, CONTRACT_SCHEMA
-from betedge_data.common.exceptions import NoDataAvailableError
-from betedge_data.historical.config import get_hist_client_config
-from betedge_data.historical.option.hist_option_bulk_request import HistOptionBulkRequest
-from betedge_data.historical.stock.hist_stock_request import HistStockRequest
-from betedge_data.historical.stock.stock_client import HistoricalStockClient
-from betedge_data.common.interface import IRequest
+from betedge_data.data_service.common.http import get_http_client
+from betedge_data.data_service.common.models import OptionThetaDataResponse, StockThetaDataResponse, TICK_SCHEMAS, CONTRACT_SCHEMA
+from betedge_data.data_service.common.exceptions import NoDataAvailableError
+from betedge_data.data_service.historical.config import get_hist_client_config
+from betedge_data.data_service.historical.option.hist_option_bulk_request import HistOptionBulkRequest
+from betedge_data.data_service.historical.stock.hist_stock_request import HistStockRequest
+from betedge_data.data_service.historical.stock.stock_client import HistoricalStockClient
+from betedge_data.data_service.common.interface import IRequest
 
 logger = logging.getLogger(__name__)
 

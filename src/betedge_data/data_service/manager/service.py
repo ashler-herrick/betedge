@@ -10,10 +10,10 @@ import logging
 from typing import Optional, Set, List
 from uuid import UUID
 
-from betedge_data.manager.external_models import ExternalBaseRequest
-from betedge_data.manager.job_tracker import JobTracker, JobInfo, JobStatus
-from betedge_data.storage.publisher import MinIOPublisher
-from betedge_data.common.exceptions import NoDataAvailableError
+from betedge_data.data_service.manager.external_models import ExternalBaseRequest
+from betedge_data.data_service.manager.job_tracker import JobTracker, JobInfo, JobStatus
+from betedge_data.data_service.storage.publisher import MinIOPublisher
+from betedge_data.data_service.common.exceptions import NoDataAvailableError
 
 logger = logging.getLogger(__name__)
 

@@ -5,12 +5,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pyarrow.ipc as ipc
 
-from betedge_data.common.http import get_http_client
-from betedge_data.common.models import StockThetaDataResponse, TICK_SCHEMAS
-from betedge_data.common.exceptions import NoDataAvailableError
-from betedge_data.historical.config import HistoricalConfig
-from betedge_data.historical.stock.hist_stock_request import HistStockRequest
-from betedge_data.common.interface import IRequest
+from betedge_data.data_service.common.http import get_http_client
+from betedge_data.data_service.common.models import StockThetaDataResponse, TICK_SCHEMAS
+from betedge_data.data_service.common.exceptions import NoDataAvailableError
+from betedge_data.data_service.historical.config import HistoricalConfig
+from betedge_data.data_service.historical.stock.hist_stock_request import HistStockRequest
+from betedge_data.data_service.common.interface import IRequest
 
 
 logger = logging.getLogger(__name__)

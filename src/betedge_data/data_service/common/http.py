@@ -9,6 +9,8 @@ import httpx
 import ijson
 from pydantic import BaseModel, ValidationError
 
+from betedge_data.data_service.common.exceptions import NoDataAvailableError
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
@@ -153,8 +155,6 @@ class PaginatedHTTPClient:
                     # Check if response is "No data" text before parsing JSON
                     response_text = response.text
                     if response_text.startswith(":No data for the specified timeframe"):
-                        from betedge_data.common.exceptions import NoDataAvailableError
-
                         raise NoDataAvailableError(f"No data available: {response_text}")
 
                     # Parse as regular JSON
@@ -192,8 +192,6 @@ class PaginatedHTTPClient:
                 logger.error(f"HTTP error on page {page_count}: {e.response.status_code}: {error_detail}")
                 raise
             except Exception as e:
-                # Check if this is a NoDataAvailableError and let it propagate
-                from betedge_data.common.exceptions import NoDataAvailableError
 
                 if isinstance(e, NoDataAvailableError):
                     raise
@@ -237,7 +235,6 @@ class PaginatedHTTPClient:
             if response.status_code == 472:
                 response_text = response.text
                 if "No data for the specified timeframe" in response_text:
-                    from betedge_data.common.exceptions import NoDataAvailableError
 
                     raise NoDataAvailableError(f"No data available: {response_text}")
 
@@ -256,8 +253,6 @@ class PaginatedHTTPClient:
         except httpx.HTTPStatusError:
             raise
         except Exception as e:
-            # Check if this is a NoDataAvailableError and let it propagate
-            from betedge_data.common.exceptions import NoDataAvailableError
 
             if isinstance(e, NoDataAvailableError):
                 raise

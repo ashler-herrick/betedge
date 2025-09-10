@@ -21,7 +21,7 @@ requires = ["hatchling >= 1.26"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["betedge_data"]
+packages = ["src/betedge_data"]
 
 [tool.hatch.metadata]
 allow-direct-references=true

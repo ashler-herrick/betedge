@@ -6,13 +6,13 @@ from datetime import datetime
 from typing import Optional, List, Sequence
 
 from pydantic import BaseModel, Field, field_validator
-from betedge_data.manager.utils import generate_month_list, generate_trading_date_list
-from betedge_data.historical.option.hist_option_bulk_request import HistOptionBulkRequest
-from betedge_data.historical.stock.hist_stock_request import HistStockRequest
-from betedge_data.alternative.earnings.earnings_request import EarningsRequest
-from betedge_data.historical.option.option_client import HistoricalOptionClient
-from betedge_data.historical.stock.stock_client import HistoricalStockClient
-from betedge_data.alternative.earnings.earnings_client import EarningsClient
+from betedge_data.data_service.manager.utils import generate_month_list, generate_trading_date_list
+from betedge_data.data_service.historical.option.hist_option_bulk_request import HistOptionBulkRequest
+from betedge_data.data_service.historical.stock.hist_stock_request import HistStockRequest
+from betedge_data.data_service.alternative.earnings.earnings_request import EarningsRequest
+from betedge_data.data_service.historical.option.option_client import HistoricalOptionClient
+from betedge_data.data_service.historical.stock.stock_client import HistoricalStockClient
+from betedge_data.data_service.alternative.earnings.earnings_client import EarningsClient
 
 Client = HistoricalOptionClient | HistoricalStockClient | EarningsClient
 Request = HistOptionBulkRequest | HistStockRequest | EarningsRequest
