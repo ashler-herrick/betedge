@@ -16,3 +16,6 @@ wheels/
 .venv
 
 .env
+
+.python-version
+.vscode

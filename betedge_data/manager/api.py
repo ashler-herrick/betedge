@@ -190,12 +190,12 @@ async def list_jobs(
                 status_filter = JobStatus(job_status.lower())
             except ValueError:
                 raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST, 
-                    detail=f"Invalid status '{job_status}'. Valid statuses: {[s.value for s in JobStatus]}"
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid status '{job_status}'. Valid statuses: {[s.value for s in JobStatus]}",
                 )
 
         jobs = service.get_all_jobs(limit=limit, status=status_filter)
-        
+
         return {
             "total": len(jobs),
             "limit": limit,
@@ -214,14 +214,12 @@ async def list_jobs(
                     "error_message": job.error_message,
                 }
                 for job in jobs
-            ]
+            ],
         }
 
     except Exception as e:
         logger.error(f"Error listing jobs: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to list jobs: {str(e)}"
-        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to list jobs: {str(e)}")
 
 
 @app.get(

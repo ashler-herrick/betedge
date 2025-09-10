@@ -241,10 +241,10 @@ class HistoricalOptionClient:
     def _create_stock_request(self, option_request: HistOptionBulkRequest) -> HistStockRequest:
         """
         Create a HistStockRequest from a HistOptionBulkRequest.
-        
+
         Args:
             option_request: The option request to derive stock parameters from
-            
+
         Returns:
             HistStockRequest with appropriate parameters for fetching underlying stock data
         """
@@ -255,7 +255,7 @@ class HistoricalOptionClient:
             "return_format": option_request.return_format,
             "interval": option_request.interval,
         }
-        
+
         # Handle date vs yearmo logic
         if option_request.date is not None:
             stock_request_params["date"] = option_request.date
@@ -265,7 +265,7 @@ class HistoricalOptionClient:
             stock_request_params["year"] = year
         else:
             raise ValueError("Option request must have either date or yearmo specified")
-            
+
         return HistStockRequest(**stock_request_params)
 
     def _fetch_data(self, url: str) -> OptionThetaDataResponse:

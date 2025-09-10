@@ -13,7 +13,6 @@ from betedge_data.alternative.earnings.earnings_request import EarningsRequest
 from betedge_data.historical.option.option_client import HistoricalOptionClient
 from betedge_data.historical.stock.stock_client import HistoricalStockClient
 from betedge_data.alternative.earnings.earnings_client import EarningsClient
-from betedge_data.common.interface import IRequest
 
 Client = HistoricalOptionClient | HistoricalStockClient | EarningsClient
 Request = HistOptionBulkRequest | HistStockRequest | EarningsRequest

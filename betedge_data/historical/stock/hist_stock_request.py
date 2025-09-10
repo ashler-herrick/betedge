@@ -146,7 +146,7 @@ class HistStockRequest(BaseModel):
     def get_url(self) -> str:
         """Build URL for ThetaData historical stock endpoint."""
         config = HistoricalConfig()
-        
+
         if self.data_schema == "eod":
             # EOD endpoint uses year range
             start_date, end_date = self.get_date_range_for_eod()

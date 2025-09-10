@@ -82,7 +82,6 @@ class HistoricalStockClient:
             url=url, response_model=StockThetaDataResponse, stream_response=False, collect_items=True
         )
 
-
     def _convert_to_table(self, stock_data: StockThetaDataResponse, endpoint: str) -> pa.Table:
         """Convert stock data to Arrow table (pure function)."""
         # Get data_schema configuration

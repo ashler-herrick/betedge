@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 
 CONFIG = get_hist_client_config()
 
+
 class HistOptionBulkRequest(BaseModel):
     """Request parameters for historical option data."""
 
@@ -157,7 +158,7 @@ class HistOptionBulkRequest(BaseModel):
         end_date = next_month_start - 1
 
         return start_date, end_date
-    
+
     def get_url(self) -> str:
         """Build URL for request"""
         base_url = f"{CONFIG.base_url}/bulk_hist/option/{self.data_schema}"
@@ -176,10 +177,10 @@ class HistOptionBulkRequest(BaseModel):
                 "exp": self.exp,
                 "start_date": self.date,
                 "end_date": self.date,
-                "ilvl": self.interval
+                "ilvl": self.interval,
             }
         return f"{base_url}?{urlencode(params)}"
-   
+
     def generate_object_key(self) -> str:
         """Generate MinIO object keys for historical option data."""
         if self.data_schema == "eod":
