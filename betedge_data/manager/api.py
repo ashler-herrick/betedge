@@ -6,6 +6,7 @@ data requests through the ThetaData clients.
 """
 
 import logging
+from typing import Optional
 from contextlib import asynccontextmanager
 from uuid import uuid4, UUID
 
@@ -18,6 +19,7 @@ from betedge_data.manager.external_models import (
     ExternalEarningsRequest,
 )
 from betedge_data.manager.service import DataProcessingService
+from betedge_data.manager.job_tracker import JobStatus
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -77,7 +79,7 @@ async def root():
     return {
         "service": "BetEdge Historical Data API",
         "version": "1.0.0",
-        "endpoints": ["/historical/option", "/historical/stock", "/earnings"],
+        "endpoints": ["/historical/option", "/historical/stock", "/earnings", "/jobs", "/jobs/{job_id}"],
         "docs": "/docs",
         "health": "/health",
     }
@@ -167,6 +169,58 @@ async def process_earnings(request: ExternalEarningsRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to submit request: {str(e)}",
+        )
+
+
+@app.get(
+    "/jobs",
+    summary="List all jobs",
+    description="Get a list of all active and historical jobs with optional filtering",
+)
+async def list_jobs(
+    limit: Optional[int] = None,
+    job_status: Optional[str] = None,
+):
+    """Get list of all jobs with optional filtering."""
+    try:
+        # Validate and convert status parameter
+        status_filter = None
+        if job_status:
+            try:
+                status_filter = JobStatus(job_status.lower())
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, 
+                    detail=f"Invalid status '{job_status}'. Valid statuses: {[s.value for s in JobStatus]}"
+                )
+
+        jobs = service.get_all_jobs(limit=limit, status=status_filter)
+        
+        return {
+            "total": len(jobs),
+            "limit": limit,
+            "status_filter": job_status,
+            "jobs": [
+                {
+                    "job_id": str(job.job_id),
+                    "status": job.status.value,
+                    "progress": {
+                        "completed": job.completed_items,
+                        "total": job.total_items,
+                        "percentage": job.progress_percentage,
+                    },
+                    "created_at": job.created_at.isoformat(),
+                    "updated_at": job.updated_at.isoformat(),
+                    "error_message": job.error_message,
+                }
+                for job in jobs
+            ]
+        }
+
+    except Exception as e:
+        logger.error(f"Error listing jobs: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to list jobs: {str(e)}"
         )
 
 

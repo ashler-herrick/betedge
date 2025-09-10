@@ -10,6 +10,7 @@ import pyarrow.parquet as pq
 from betedge_data.alternative.earnings.earnings_request import EarningsRequest, EarningsRecord
 from betedge_data.common.http import get_http_client
 from betedge_data.manager.utils import generate_trading_date_list
+from betedge_data.common.interface import IRequest
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +36,12 @@ class EarningsClient:
         }
         self.client = get_http_client()
 
-    def get_data(self, request: EarningsRequest) -> io.BytesIO:
+    def get_data(self, request: IRequest) -> io.BytesIO:
         """
         Get monthly earnings data as Parquet bytes.
 
         Args:
-            request: EarningsRequest with year, month and parameters
+            request: IRequest with year, month and parameters
 
         Returns:
             BytesIO containing Parquet data ready for streaming

@@ -7,7 +7,7 @@ using async background jobs with progress tracking.
 
 import asyncio
 import logging
-from typing import Optional, Set
+from typing import Optional, Set, List
 from uuid import UUID
 
 from betedge_data.manager.external_models import ExternalBaseRequest
@@ -127,6 +127,19 @@ class DataProcessingService:
             JobInfo object if job exists, None otherwise
         """
         return self.job_tracker.get_job(job_id)
+
+    def get_all_jobs(self, limit: Optional[int] = None, status: Optional[JobStatus] = None) -> List[JobInfo]:
+        """
+        Get all jobs for API endpoint.
+
+        Args:
+            limit: Maximum number of jobs to return (most recent first)
+            status: Filter by job status (if None, returns all statuses)
+
+        Returns:
+            List of JobInfo objects ordered by created_at desc (most recent first)
+        """
+        return self.job_tracker.get_all_jobs(limit=limit, status=status)
 
     async def close(self) -> None:
         """Close service connections and clean up resources."""

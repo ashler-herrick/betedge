@@ -50,7 +50,6 @@ dev = [
     "pytest-mock>=3.11.0",
     "pytest-timeout>=2.1.0",
     "requests>=2.32.4",
-    "faker>=19.0.0",
 ]
 
 [tool.pytest.ini_options]

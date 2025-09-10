@@ -26,13 +26,13 @@ class HistoricalStockClient:
         self.config = HistoricalConfig()
         self.http_client = get_http_client()
 
-    def get_data(self, request: HistStockRequest) -> io.BytesIO:
+    def get_data(self, request: IRequest) -> io.BytesIO:
         """
         Get stock data and return as Parquet or IPC bytes for streaming.
         This is the single orchestrator method (the "dirty place").
 
         Args:
-            request: HistStockRequest with all parameters and validation
+            request: IRequest with all parameters and validation
 
         Returns:
             BytesIO containing filtered Parquet or IPC data ready for streaming

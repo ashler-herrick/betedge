@@ -12,6 +12,7 @@ from betedge_data.historical.config import get_hist_client_config
 from betedge_data.historical.option.hist_option_bulk_request import HistOptionBulkRequest
 from betedge_data.historical.stock.hist_stock_request import HistStockRequest
 from betedge_data.historical.stock.stock_client import HistoricalStockClient
+from betedge_data.common.interface import IRequest
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +32,13 @@ class HistoricalOptionClient:
         self.http_client = get_http_client()
         self.stock_client = HistoricalStockClient()
 
-    def get_data(self, request: HistOptionBulkRequest) -> io.BytesIO:
+    def get_data(self, request: IRequest) -> io.BytesIO:
         """
         Get option data and return as Parquet or IPC bytes for streaming.
         This is the single orchestrator method (the "dirty place").
 
         Args:
-            request: HistOptionBulkRequest with all parameters and validation
+            request: IRequest with all parameters and validation
 
         Returns:
             BytesIO containing Parquet or IPC data ready for streaming

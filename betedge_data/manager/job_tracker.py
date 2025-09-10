@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -376,3 +376,31 @@ class JobTracker:
                 cursor = conn.execute("SELECT * FROM jobs WHERE id = ?", (str(job_id),))
                 row = cursor.fetchone()
                 return JobInfo.from_row(row) if row else None
+
+    def get_all_jobs(self, limit: Optional[int] = None, status: Optional[JobStatus] = None) -> List[JobInfo]:
+        """
+        Get all jobs, optionally filtered by status.
+
+        Args:
+            limit: Maximum number of jobs to return (most recent first)
+            status: Filter by job status (if None, returns all statuses)
+
+        Returns:
+            List of JobInfo objects ordered by created_at desc (most recent first)
+        """
+        with self._lock:
+            with self._get_connection() as conn:
+                if status:
+                    query = "SELECT * FROM jobs WHERE status = ? ORDER BY created_at DESC"
+                    params = (status.value,)
+                else:
+                    query = "SELECT * FROM jobs ORDER BY created_at DESC"
+                    params = ()
+
+                if limit:
+                    query += " LIMIT ?"
+                    params = params + (limit,)
+
+                cursor = conn.execute(query, params)
+                rows = cursor.fetchall()
+                return [JobInfo.from_row(row) for row in rows]
