@@ -34,8 +34,8 @@ def get_http_client() -> "PaginatedHTTPClient":
             if _http_client is None:
                 _http_client = PaginatedHTTPClient(
                     timeout=60.0,
-                    max_connections=100,
-                    max_keepalive_connections=50,
+                    max_connections=4,
+                    max_keepalive_connections=4,
                     http2=True,
                 )
     return _http_client

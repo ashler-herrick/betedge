@@ -42,7 +42,7 @@ class HistoricalStockClient:
             raise ValueError(f"Unsupported request type: {type(request)}")
 
         logger.info(
-            f"Starting data fetch for {request.root} data_schema={request.data_schema}"
+            f"Starting data fetch for {request}"
         )
 
         try:

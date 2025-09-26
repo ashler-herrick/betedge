@@ -15,6 +15,7 @@ from betedge_data.client.minio import MinIOConfig
 
 logging.basicConfig(
     format="%(asctime)s | Thread-%(thread)d (%(threadName)s) | %(levelname)s | %(message)s"
+    ,level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
