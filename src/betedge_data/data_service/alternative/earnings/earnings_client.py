@@ -48,7 +48,7 @@ class EarningsClient:
         """
         if not isinstance(request, EarningsRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
-        
+
         logger.info(f"Starting monthly earnings data fetch for {request.year}-{request.month:02d}")
 
         # Validate return format

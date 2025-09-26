@@ -192,7 +192,6 @@ class PaginatedHTTPClient:
                 logger.error(f"HTTP error on page {page_count}: {e.response.status_code}: {error_detail}")
                 raise
             except Exception as e:
-
                 if isinstance(e, NoDataAvailableError):
                     raise
                 logger.error(f"Error fetching page {page_count}: {e}")
@@ -235,7 +234,6 @@ class PaginatedHTTPClient:
             if response.status_code == 472:
                 response_text = response.text
                 if "No data for the specified timeframe" in response_text:
-
                     raise NoDataAvailableError(f"No data available: {response_text}")
 
             # Check for ThetaData "Wrong IP" response (status 476)
@@ -253,7 +251,6 @@ class PaginatedHTTPClient:
         except httpx.HTTPStatusError:
             raise
         except Exception as e:
-
             if isinstance(e, NoDataAvailableError):
                 raise
             logger.error(f"Request failed for {url}: {e}")

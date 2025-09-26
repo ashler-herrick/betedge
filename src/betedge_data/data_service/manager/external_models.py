@@ -21,6 +21,8 @@ Request = HistOptionBulkRequest | HistStockRequest | EarningsRequest
 class ExternalBaseRequest(BaseModel):
     """Base class for all data processing requests."""
 
+    force_refresh: bool = Field(False, description="If True, reprocess existing files (overwrite)")
+
     def get_subrequests(self) -> Sequence[Request]:
         """
         Generate request objects that can be passed the ThetaData API.
@@ -257,6 +259,11 @@ class ExternalEarningsRequest(ExternalBaseRequest):
     # Pre-computed requests attribute
     requests: List[EarningsRequest] = Field(default_factory=list, init=False, repr=False)
 
+    def __init__(self, **data):
+        """Initialize and pre-compute the requests list."""
+        super().__init__(**data)
+        self.requests = self._compute_requests()
+
     @field_validator("end_date")
     @classmethod
     def validate_date_range(cls, v, info):
@@ -283,11 +290,6 @@ class ExternalEarningsRequest(ExternalBaseRequest):
         except ValueError:
             raise ValueError(f"Invalid date format: {v}. Expected YYYYMM format")
         return v
-
-    def __init__(self, **data):
-        """Initialize and pre-compute the requests list."""
-        super().__init__(**data)
-        self.requests = self._compute_requests()
 
     def _compute_requests(self) -> List[EarningsRequest]:
         """Compute the list of requests."""

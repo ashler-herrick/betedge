@@ -38,9 +38,6 @@ class JobInfo:
     error_message: Optional[str]
     created_at: datetime
     updated_at: datetime
-    idem_key: Optional[str] = None
-    result_uri: Optional[str] = None
-    params_json: Optional[str] = None
 
     @property
     def progress_percentage(self) -> float:
@@ -65,9 +62,6 @@ class JobInfo:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "progress_percentage": self.progress_percentage,
-            "idem_key": self.idem_key,
-            "result_uri": self.result_uri,
-            "params_json": self.params_json,
         }
 
     @classmethod
@@ -81,9 +75,6 @@ class JobInfo:
             error_message=data.get("error_message"),
             created_at=datetime.fromisoformat(data["created_at"]),
             updated_at=datetime.fromisoformat(data["updated_at"]),
-            idem_key=data.get("idem_key"),
-            result_uri=data.get("result_uri"),
-            params_json=data.get("params_json"),
         )
 
     @classmethod
@@ -97,9 +88,6 @@ class JobInfo:
             error_message=row["error_message"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
-            idem_key=row["idem_key"],
-            result_uri=row["result_uri"],
-            params_json=row["params_json"],
         )
 
 
@@ -145,17 +133,13 @@ class JobTracker:
                     completed_items INTEGER NOT NULL,
                     error_message TEXT,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    idem_key TEXT UNIQUE,
-                    result_uri TEXT,
-                    params_json TEXT
+                    updated_at TEXT NOT NULL
                 )
             """)
 
             # Create indexes for performance
             conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_updated_at ON jobs(updated_at)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_idem_key ON jobs(idem_key)")
 
             conn.commit()
 
@@ -200,8 +184,8 @@ class JobTracker:
                         """
                         INSERT INTO jobs (
                             id, status, total_items, completed_items, error_message,
-                            created_at, updated_at, idem_key, result_uri, params_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                         (
                             str(job_id),
@@ -212,8 +196,6 @@ class JobTracker:
                             now.isoformat(),
                             now.isoformat(),
                             None,
-                            None,
-                            None,
                         ),
                     )
                     conn.commit()
@@ -222,22 +204,6 @@ class JobTracker:
 
         logger.info(f"Created job {job_id} with {total_items} items")
         return job_info
-
-    def get_job_by_idem(self, idem_key: str) -> Optional[JobInfo]:
-        """
-        Get job by idempotency key.
-
-        Args:
-            idem_key: Idempotency key to search for
-
-        Returns:
-            JobInfo object if found, None otherwise
-        """
-        with self._lock:
-            with self._get_connection() as conn:
-                cursor = conn.execute("SELECT * FROM jobs WHERE idem_key = ?", (idem_key,))
-                row = cursor.fetchone()
-                return JobInfo.from_row(row) if row else None
 
     def update_progress(self, job_id: UUID, completed_items: int) -> None:
         """

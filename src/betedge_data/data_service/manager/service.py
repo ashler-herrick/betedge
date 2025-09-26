@@ -21,20 +21,14 @@ logger = logging.getLogger(__name__)
 class DataProcessingService:
     """Service for processing data requests using async background jobs."""
 
-    def __init__(self, force_refresh: bool = False):
-        """
-        Initialize the data processing service.
-
-        Args:
-            force_refresh: If True, reprocess existing files (overwrite)
-        """
-        self.force_refresh = force_refresh
+    def __init__(self):
+        """Initialize the data processing service."""
         self.publisher = MinIOPublisher()
         self.job_tracker = JobTracker()
         self._background_tasks: Set[asyncio.Task] = set()
         logger.info("DataProcessingService initialized.")
 
-    async def process_request(self, request: ExternalBaseRequest, request_id: UUID) -> None:
+    async def process_request(self, request: ExternalBaseRequest, request_id: UUID) -> JobInfo:
         """
         Create background job for processing request.
 
@@ -46,7 +40,7 @@ class DataProcessingService:
 
         # Create job entry
         individual_requests = request.get_subrequests()
-        self.job_tracker.create_job(request_id, len(individual_requests))
+        job_info = self.job_tracker.create_job(request_id, len(individual_requests))
 
         # Start background processing
         task = asyncio.create_task(self._process_request_background(request, request_id))
@@ -54,6 +48,8 @@ class DataProcessingService:
         task.add_done_callback(self._background_tasks.discard)
 
         logger.info(f"Background job {request_id} started with {len(individual_requests)} items")
+
+        return job_info
 
     async def _process_request_background(self, request: ExternalBaseRequest, request_id: UUID) -> None:
         """
@@ -75,7 +71,7 @@ class DataProcessingService:
                     object_key = req.generate_object_key()
 
                     # Check if file already exists (unless force_refresh is True)
-                    if not self.force_refresh and self.publisher.file_exists(object_key):
+                    if not request.force_refresh and self.publisher.file_exists(object_key):
                         logger.info(
                             f"File already exists for {getattr(req, 'root', 'unknown')} "
                             f"on {getattr(req, 'date', 'unknown date')} - skipping"
@@ -116,7 +112,7 @@ class DataProcessingService:
             self.job_tracker.mark_failed(request_id, str(e))
             logger.error(f"Background job {request_id} failed: {e}")
 
-    def get_job_status(self, job_id: UUID) -> Optional[JobInfo]:
+    def get_job_status(self, job_info: JobInfo) -> Optional[JobInfo]:
         """
         Get job status for API endpoint.
 
@@ -126,11 +122,11 @@ class DataProcessingService:
         Returns:
             JobInfo object if job exists, None otherwise
         """
-        return self.job_tracker.get_job(job_id)
+        return self.job_tracker.get_job(job_info.job_id)
 
     def get_all_jobs(self, limit: Optional[int] = None, status: Optional[JobStatus] = None) -> List[JobInfo]:
         """
-        Get all jobs for API endpoint.
+        Get all jobs.
 
         Args:
             limit: Maximum number of jobs to return (most recent first)

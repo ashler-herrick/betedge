@@ -6,7 +6,12 @@ import pyarrow.parquet as pq
 import pyarrow.ipc as ipc
 
 from betedge_data.data_service.common.http import get_http_client
-from betedge_data.data_service.common.models import OptionThetaDataResponse, StockThetaDataResponse, TICK_SCHEMAS, CONTRACT_SCHEMA
+from betedge_data.data_service.common.models import (
+    OptionThetaDataResponse,
+    StockThetaDataResponse,
+    TICK_SCHEMAS,
+    CONTRACT_SCHEMA,
+)
 from betedge_data.data_service.common.exceptions import NoDataAvailableError
 from betedge_data.data_service.historical.config import get_hist_client_config
 from betedge_data.data_service.historical.option.hist_option_bulk_request import HistOptionBulkRequest

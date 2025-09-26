@@ -74,9 +74,11 @@ dependencies = [
     { name = "minio" },
     { name = "orjson" },
     { name = "pandas" },
+    { name = "polars" },
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "python-dotenv" },
 ]
 
 [package.dev-dependencies]
@@ -99,9 +101,11 @@ requires-dist = [
     { name = "minio", specifier = ">=7.2.0" },
     { name = "orjson", specifier = ">=3.10.12" },
     { name = "pandas", specifier = ">=2.0.0" },
+    { name = "polars", specifier = ">=1.31.0" },
     { name = "pyarrow", specifier = ">=20.0.0" },
     { name = "pydantic", specifier = ">=2.11.7" },
     { name = "pydantic-settings", specifier = ">=2.10.0" },
+    { name = "python-dotenv", specifier = ">=1.1.1" },
 ]
 
 [package.metadata.requires-dev]
