@@ -1,14 +1,13 @@
-
-from betedge_data.manager.client import BetEdgeClient
-from betedge_data.manager.external_models import (
-    ExternalHistoricalOptionRequest as OptionRequest,
-    ExternalHistoricalStockRequest as StockRequest,
-    ExternalEarningsRequest as EarningsRequest,
+from betedge_data.client.client import BetEdgeClient
+from betedge_data.client.client_requests import (
+    ClientOptionRequest,
+    ClientStockRequest,
+    ClientEarningsRequest,
 )
 
 __all__ = [
     "BetEdgeClient",
-    "OptionRequest",
-    "StockRequest",
-    "EarningsRequest"
+    "ClientOptionRequest",
+    "ClientStockRequest",
+    "ClientEarningsRequest",
 ]

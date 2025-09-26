@@ -88,7 +88,11 @@ def main():
     print(f"API URL: {API_URL}")
 
     # Build request payload
-    payload = {"start_date": START_DATE, "end_date": END_DATE, "return_format": RETURN_FORMAT}
+    payload = {
+        "start_date": START_DATE,
+        "end_date": END_DATE,
+        "return_format": RETURN_FORMAT,
+    }
 
     print_section("Request Payload")
     print(json.dumps(payload, indent=2))
@@ -110,7 +114,10 @@ def main():
 
     try:
         response = requests.post(
-            f"{API_URL}/earnings", json=payload, timeout=REQUEST_TIMEOUT, headers={"Content-Type": "application/json"}
+            f"{API_URL}/earnings",
+            json=payload,
+            timeout=REQUEST_TIMEOUT,
+            headers={"Content-Type": "application/json"},
         )
 
         request_duration = time.time() - start_time
@@ -141,17 +148,23 @@ def main():
 
                         # Parse message for monthly processing insights
                         if "month" in message.lower():
-                            print("📅 Monthly Processing: Data processed in monthly chunks")
+                            print(
+                                "📅 Monthly Processing: Data processed in monthly chunks"
+                            )
                         if "/" in message and "month" in message.lower():
                             print("📊 Progress: Message shows month-by-month progress")
 
                     if "processing_time_ms" in data:
                         processing_time = data["processing_time_ms"]
-                        print(f"⏱️  Processing Time: {processing_time:,}ms ({processing_time / 1000:.2f}s)")
+                        print(
+                            f"⏱️  Processing Time: {processing_time:,}ms ({processing_time / 1000:.2f}s)"
+                        )
 
                         # Performance insights
                         if processing_time > 60000:  # > 1 minute
-                            print(f"📈 Performance: {processing_time / 1000 / months_count:.1f}s per month average")
+                            print(
+                                f"📈 Performance: {processing_time / 1000 / months_count:.1f}s per month average"
+                            )
 
                     if "storage_location" in data:
                         storage_location = data["storage_location"]
@@ -163,10 +176,14 @@ def main():
                         records_count = data.get("records_count", 0)
                         print(f"📊 Records Count: {records_count:,}")
                         if records_count > 0:
-                            print(f"💾 Data Processed: {records_count:,} earnings announcements")
+                            print(
+                                f"💾 Data Processed: {records_count:,} earnings announcements"
+                            )
                             if months_count > 0:
                                 avg_per_month = records_count / months_count
-                                print(f"📈 Average per Month: {avg_per_month:.0f} earnings announcements")
+                                print(
+                                    f"📈 Average per Month: {avg_per_month:.0f} earnings announcements"
+                                )
 
                     if "data_type" in data:
                         data_type = data["data_type"]
@@ -216,7 +233,9 @@ def main():
     print(f"Total execution time: {total_time:.2f} seconds")
 
     if total_time > 60:
-        print(f"💡 Processing took {total_time / 60:.1f} minutes for {months_count} months")
+        print(
+            f"💡 Processing took {total_time / 60:.1f} minutes for {months_count} months"
+        )
         print(f"   Average: {total_time / months_count:.1f} seconds per month")
 
 

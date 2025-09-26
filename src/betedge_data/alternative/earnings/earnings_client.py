@@ -7,9 +7,12 @@ import httpx
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from betedge_data.alternative.earnings.earnings_request import EarningsRequest, EarningsRecord
+from betedge_data.alternative.earnings.earnings_request import (
+    EarningsRequest,
+    EarningsRecord,
+)
 from betedge_data.common.http import get_http_client
-from betedge_data.manager.utils import generate_trading_date_list
+from betedge_data.client.utils import generate_trading_date_list
 from betedge_data.common.interface import IRequest
 
 logger = logging.getLogger(__name__)
@@ -49,11 +52,15 @@ class EarningsClient:
         if not isinstance(request, EarningsRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
 
-        logger.info(f"Starting monthly earnings data fetch for {request.year}-{request.month:02d}")
+        logger.info(
+            f"Starting monthly earnings data fetch for {request.year}-{request.month:02d}"
+        )
 
         # Validate return format
         if request.return_format != "parquet":
-            raise ValueError(f"Expected return_format='parquet', got '{request.return_format}'")
+            raise ValueError(
+                f"Expected return_format='parquet', got '{request.return_format}'"
+            )
 
         try:
             # Generate trading dates for the month using proper holiday-aware function
@@ -61,7 +68,9 @@ class EarningsClient:
             if request.month == 12:
                 end_date = datetime(request.year + 1, 1, 1) - timedelta(days=1)
             else:
-                end_date = datetime(request.year, request.month + 1, 1) - timedelta(days=1)
+                end_date = datetime(request.year, request.month + 1, 1) - timedelta(
+                    days=1
+                )
 
             # Convert to YYYYMMDD format for generate_trading_date_list
             start_date_str = start_date.strftime("%Y%m%d")
@@ -70,10 +79,13 @@ class EarningsClient:
             # Get trading dates as integers, then convert to YYYY-MM-DD format for API
             trading_dates_int = generate_trading_date_list(start_date_str, end_date_str)
             trading_dates = [
-                datetime.strptime(str(date_int), "%Y%m%d").strftime("%Y-%m-%d") for date_int in trading_dates_int
+                datetime.strptime(str(date_int), "%Y%m%d").strftime("%Y-%m-%d")
+                for date_int in trading_dates_int
             ]
 
-            logger.info(f"Generated {len(trading_dates)} trading dates for {request.year}-{request.month:02d}")
+            logger.info(
+                f"Generated {len(trading_dates)} trading dates for {request.year}-{request.month:02d}"
+            )
 
             # Fetch earnings data for all dates
             all_records = []
@@ -81,7 +93,9 @@ class EarningsClient:
 
             for i, date_str in enumerate(trading_dates, 1):
                 try:
-                    logger.debug(f"Fetching earnings for {date_str} ({i}/{len(trading_dates)})")
+                    logger.debug(
+                        f"Fetching earnings for {date_str} ({i}/{len(trading_dates)})"
+                    )
                     daily_records = self._fetch_daily_earnings(date_str, request)
                     all_records.extend(daily_records)
 
@@ -104,23 +118,33 @@ class EarningsClient:
             if failed_dates:
                 failed_preview = failed_dates[:5]
                 ellipsis = "..." if len(failed_dates) > 5 else ""
-                logger.warning(f"Failed to fetch data for {len(failed_dates)} dates: {failed_preview}{ellipsis}")
+                logger.warning(
+                    f"Failed to fetch data for {len(failed_dates)} dates: {failed_preview}{ellipsis}"
+                )
 
             if not all_records:
-                logger.error(f"No earnings data found for {request.year}-{request.month:02d}")
+                logger.error(
+                    f"No earnings data found for {request.year}-{request.month:02d}"
+                )
                 raise RuntimeError
 
             # Convert to Parquet
             parquet_buffer = self._convert_to_parquet(all_records)
-            logger.info(f"Conversion complete: {parquet_buffer.getvalue().__len__()} bytes Parquet data generated")
+            logger.info(
+                f"Conversion complete: {parquet_buffer.getvalue().__len__()} bytes Parquet data generated"
+            )
             return parquet_buffer
 
         except Exception as e:
-            logger.error(f"Monthly earnings data fetch failed for {request.year}-{request.month:02d}: {str(e)}")
+            logger.error(
+                f"Monthly earnings data fetch failed for {request.year}-{request.month:02d}: {str(e)}"
+            )
             logger.debug("Monthly earnings fetch error details", exc_info=True)
             raise RuntimeError(f"Monthly earnings data fetch failed: {e}") from e
 
-    def _fetch_daily_earnings(self, date_str: str, request: EarningsRequest) -> List[EarningsRecord]:
+    def _fetch_daily_earnings(
+        self, date_str: str, request: EarningsRequest
+    ) -> List[EarningsRecord]:
         """
         Fetch earnings data for a specific date.
 
@@ -135,7 +159,9 @@ class EarningsClient:
             # Use shared HTTP client's internal httpx client for the request
             # Get URL from the request object for consistency
             base_url = request.get_url()
-            response = self.client.client.get(base_url, params={"date": date_str}, headers=self.headers)
+            response = self.client.client.get(
+                base_url, params={"date": date_str}, headers=self.headers
+            )
             response.raise_for_status()
 
             data = response.json()
@@ -157,7 +183,9 @@ class EarningsClient:
                     record = self._normalize_earnings_record(row, date_str)
                     records.append(record)
                 except Exception as e:
-                    logger.warning(f"Failed to normalize earnings record for {date_str}: {e}, row: {row}")
+                    logger.warning(
+                        f"Failed to normalize earnings record for {date_str}: {e}, row: {row}"
+                    )
                     continue
 
             logger.debug(f"Fetched {len(records)} earnings records for {date_str}")
@@ -168,7 +196,9 @@ class EarningsClient:
                 logger.debug(f"No earnings data found for {date_str} (404)")
                 return []
             else:
-                logger.error(f"HTTP error fetching earnings for {date_str}: {e.response.status_code}")
+                logger.error(
+                    f"HTTP error fetching earnings for {date_str}: {e.response.status_code}"
+                )
                 raise
         except Exception as e:
             logger.error(f"Error fetching earnings for {date_str}: {e}")

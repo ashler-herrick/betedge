@@ -41,7 +41,9 @@ class HistoricalStockClient:
         if not isinstance(request, HistStockRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
 
-        logger.info(f"Starting data fetch for {request.root} data_schema={request.data_schema}")
+        logger.info(
+            f"Starting data fetch for {request.root} data_schema={request.data_schema}"
+        )
 
         try:
             # Step 1: Build URL (delegates to request object)
@@ -58,7 +60,9 @@ class HistoricalStockClient:
             if request.return_format == "parquet":
                 logger.debug(f"Converting to Parquet for {request.root}")
                 buffer = self._write_parquet(table)
-                logger.info(f"Parquet conversion complete: {len(buffer.getvalue())} bytes")
+                logger.info(
+                    f"Parquet conversion complete: {len(buffer.getvalue())} bytes"
+                )
                 return buffer
             elif request.return_format == "ipc":
                 logger.debug(f"Converting to IPC for {request.root}")
@@ -79,10 +83,15 @@ class HistoricalStockClient:
     def _fetch_data(self, url: str) -> StockThetaDataResponse:
         """Fetch stock data from URL (pure function, no error handling)."""
         return self.http_client.fetch_paginated(
-            url=url, response_model=StockThetaDataResponse, stream_response=False, collect_items=True
+            url=url,
+            response_model=StockThetaDataResponse,
+            stream_response=False,
+            collect_items=True,
         )
 
-    def _convert_to_table(self, stock_data: StockThetaDataResponse, endpoint: str) -> pa.Table:
+    def _convert_to_table(
+        self, stock_data: StockThetaDataResponse, endpoint: str
+    ) -> pa.Table:
         """Convert stock data to Arrow table (pure function)."""
         # Get data_schema configuration
         data_schema = TICK_SCHEMAS[endpoint]
@@ -112,9 +121,13 @@ class HistoricalStockClient:
                 "bid_condition",
                 "ask_condition",
             ]:
-                arrays.append(pa.array([int(x) for x in stock_columns[i]], type=arrow_type))
+                arrays.append(
+                    pa.array([int(x) for x in stock_columns[i]], type=arrow_type)
+                )
             else:  # float fields
-                arrays.append(pa.array([float(x) for x in stock_columns[i]], type=arrow_type))
+                arrays.append(
+                    pa.array([float(x) for x in stock_columns[i]], type=arrow_type)
+                )
 
         return pa.Table.from_arrays(arrays, names=field_names)
 

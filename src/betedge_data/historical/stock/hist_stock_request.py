@@ -17,13 +17,21 @@ class HistStockRequest(BaseModel):
     root: str = Field(..., description="Security symbol")
 
     # Date fields (one of these must be provided)
-    date: Optional[int] = Field(None, description="The date in YYYYMMDD format (for quote/ohlc/single-day EOD)")
-    year: Optional[int] = Field(None, description="The year for EOD data (alternative to date)")
+    date: Optional[int] = Field(
+        None, description="The date in YYYYMMDD format (for quote/ohlc/single-day EOD)"
+    )
+    year: Optional[int] = Field(
+        None, description="The year for EOD data (alternative to date)"
+    )
 
-    data_schema: str = Field(..., description="Data data_schema type: 'quote', 'ohlc', or 'eod'")
+    data_schema: str = Field(
+        ..., description="Data data_schema type: 'quote', 'ohlc', or 'eod'"
+    )
     # Optional fields (with defaults)
     interval: int = Field(default=60_000, ge=0, description="Interval in milliseconds")
-    return_format: str = Field(default="parquet", description="Return format: parquet or ipc")
+    return_format: str = Field(
+        default="parquet", description="Return format: parquet or ipc"
+    )
 
     @field_validator("date")
     @classmethod
@@ -91,7 +99,9 @@ class HistStockRequest(BaseModel):
     def validate_interval(cls, v: int) -> int:
         """Validate interval constraints per ThetaData API."""
         if v < 60000:
-            raise ValueError(f"Intervals under 60000ms (1 minute) are not officially supported, got {v}")
+            raise ValueError(
+                f"Intervals under 60000ms (1 minute) are not officially supported, got {v}"
+            )
         return v
 
     @field_validator("return_format")
@@ -107,7 +117,9 @@ class HistStockRequest(BaseModel):
     def validate_data_schema(cls, v: str) -> str:
         """Validate data_schema is supported."""
         if v not in ["quote", "ohlc", "eod"]:
-            raise ValueError(f"data_schema must be 'quote', 'ohlc', or 'eod', got '{v}'")
+            raise ValueError(
+                f"data_schema must be 'quote', 'ohlc', or 'eod', got '{v}'"
+            )
         return v
 
     def get_processing_year(self) -> int:
@@ -139,7 +151,9 @@ class HistStockRequest(BaseModel):
                 raise ValueError("Date is required for non-EOD endpoints")
             date_obj = datetime.strptime(str(self.date), "%Y%m%d")
             interval_str = interval_ms_to_string(self.interval)
-            base_path = f"historical-stock/{self.data_schema}/{interval_str}/{self.root}"
+            base_path = (
+                f"historical-stock/{self.data_schema}/{interval_str}/{self.root}"
+            )
             date_path = f"{date_obj.year}/{date_obj.month:02d}/{date_obj.day:02d}"
             return f"{base_path}/{date_path}/data.{self.return_format}"
 

@@ -14,7 +14,9 @@ from betedge_data.common.models import (
 )
 from betedge_data.common.exceptions import NoDataAvailableError
 from betedge_data.historical.config import get_hist_client_config
-from betedge_data.historical.option.hist_option_bulk_request import HistOptionBulkRequest
+from betedge_data.historical.option.hist_option_bulk_request import (
+    HistOptionBulkRequest,
+)
 from betedge_data.historical.stock.hist_stock_request import HistStockRequest
 from betedge_data.historical.stock.stock_client import HistoricalStockClient
 from betedge_data.common.interface import IRequest
@@ -52,7 +54,9 @@ class HistoricalOptionClient:
         if not isinstance(request, HistOptionBulkRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
 
-        logger.info(f"Starting data fetch for {request.root} data_schema={request.data_schema}")
+        logger.info(
+            f"Starting data fetch for {request.root} data_schema={request.data_schema}"
+        )
 
         try:
             # Step 1: Build URL (delegates to pure function)
@@ -60,13 +64,17 @@ class HistoricalOptionClient:
 
             # Step 2: Fetch data (delegates to pure function)
             option_data = self._fetch_data(url)
-            logger.debug(f"Option data fetch complete - {len(option_data.response)} records")
+            logger.debug(
+                f"Option data fetch complete - {len(option_data.response)} records"
+            )
 
             # Step 3: Handle stock data if needed
             stock_request = self._create_stock_request(request)
             stock_url = stock_request.get_url()
             stock_data = self.stock_client._fetch_data(stock_url)
-            logger.debug(f"Stock data fetch complete - {len(stock_data.response)} records")
+            logger.debug(
+                f"Stock data fetch complete - {len(stock_data.response)} records"
+            )
 
             # Step 4: Convert to Arrow table (delegates to pure function)
             table = self._convert_to_table(option_data, stock_data, request.data_schema)
@@ -75,7 +83,9 @@ class HistoricalOptionClient:
             if request.return_format == "parquet":
                 logger.debug(f"Converting to Parquet for {request.root}")
                 buffer = self._write_parquet(table)
-                logger.info(f"Parquet conversion complete: {len(buffer.getvalue())} bytes")
+                logger.info(
+                    f"Parquet conversion complete: {len(buffer.getvalue())} bytes"
+                )
                 return buffer
             elif request.return_format == "ipc":
                 logger.debug(f"Converting to IPC for {request.root}")
@@ -94,7 +104,10 @@ class HistoricalOptionClient:
             raise RuntimeError(f"Data processing failed: {e}") from e
 
     def _convert_to_table(
-        self, option_data: OptionThetaDataResponse, stock_data: StockThetaDataResponse, endpoint: str
+        self,
+        option_data: OptionThetaDataResponse,
+        stock_data: StockThetaDataResponse,
+        endpoint: str,
     ) -> pa.Table:
         """Convert option and stock data to Arrow table (for regular endpoints)."""
         # Use existing flattening logic for backward compatibility
@@ -117,7 +130,10 @@ class HistoricalOptionClient:
         return buffer
 
     def _flatten_option_data(
-        self, option_data: OptionThetaDataResponse, stock_data: StockThetaDataResponse, endpoint: str = "quote"
+        self,
+        option_data: OptionThetaDataResponse,
+        stock_data: StockThetaDataResponse,
+        endpoint: str = "quote",
     ) -> dict:
         """
         Flatten option and stock data into flat tick records with contract info.
@@ -170,9 +186,15 @@ class HistoricalOptionClient:
         root = contract_info[0].root
         # Create contract info columns with list comprehensions
         root_column = [root] * len(contract_info) + [root] * len(stock_data.response)
-        expiration_column = [contract.expiration for contract in contract_info] + [0] * len(stock_data.response)
-        strike_column = [contract.strike for contract in contract_info] + [0] * len(stock_data.response)
-        right_column = [contract.right for contract in contract_info] + ["U"] * len(stock_data.response)
+        expiration_column = [contract.expiration for contract in contract_info] + [
+            0
+        ] * len(stock_data.response)
+        strike_column = [contract.strike for contract in contract_info] + [0] * len(
+            stock_data.response
+        )
+        right_column = [contract.right for contract in contract_info] + ["U"] * len(
+            stock_data.response
+        )
 
         # Create final data structure with batch type conversions using data_schema field names
         flattened_data = {}
@@ -198,10 +220,14 @@ class HistoricalOptionClient:
         flattened_data["strike"] = strike_column
         flattened_data["right"] = right_column
 
-        logger.debug(f"Flattened to {len(flattened_data['ms_of_day'])} total tick records")
+        logger.debug(
+            f"Flattened to {len(flattened_data['ms_of_day'])} total tick records"
+        )
         return flattened_data
 
-    def _create_arrow_table(self, flattened_data: dict, data_schema_type: str = "quote") -> pa.Table:
+    def _create_arrow_table(
+        self, flattened_data: dict, data_schema_type: str = "quote"
+    ) -> pa.Table:
         """
         Create PyArrow table from flattened option/stock data using data_schema configuration.
 
@@ -224,8 +250,12 @@ class HistoricalOptionClient:
         contract_data_schema = CONTRACT_SCHEMA
 
         # Combine tick and contract field definitions
-        all_field_names = tick_data_schema["field_names"] + contract_data_schema["field_names"]
-        all_arrow_types = tick_data_schema["arrow_types"] + contract_data_schema["arrow_types"]
+        all_field_names = (
+            tick_data_schema["field_names"] + contract_data_schema["field_names"]
+        )
+        all_arrow_types = (
+            tick_data_schema["arrow_types"] + contract_data_schema["arrow_types"]
+        )
 
         # Create Arrow arrays with proper types
         arrays = []
@@ -240,10 +270,14 @@ class HistoricalOptionClient:
         # Create table
         table = pa.Table.from_arrays(arrays, names=all_field_names)
         total_records = len(flattened_data.get("ms_of_day", []))
-        logger.debug(f"Created Arrow table with {total_records} records using {data_schema_type} data_schema")
+        logger.debug(
+            f"Created Arrow table with {total_records} records using {data_schema_type} data_schema"
+        )
         return table
 
-    def _create_stock_request(self, option_request: HistOptionBulkRequest) -> HistStockRequest:
+    def _create_stock_request(
+        self, option_request: HistOptionBulkRequest
+    ) -> HistStockRequest:
         """
         Create a HistStockRequest from a HistOptionBulkRequest.
 

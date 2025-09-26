@@ -2,8 +2,9 @@
 Generalized HTTP client with pagination support for API interactions.
 """
 
-import logging
 from typing import Any, Dict, Iterator, Optional, Type, TypeVar
+import logging
+import threading
 
 import httpx
 import ijson
@@ -17,6 +18,7 @@ T = TypeVar("T", bound=BaseModel)
 
 # Module-level HTTP client instance
 _http_client: Optional["PaginatedHTTPClient"] = None
+_client_lock = threading.Lock()
 
 
 def get_http_client() -> "PaginatedHTTPClient":
@@ -28,12 +30,14 @@ def get_http_client() -> "PaginatedHTTPClient":
     """
     global _http_client
     if _http_client is None:
-        _http_client = PaginatedHTTPClient(
-            timeout=60.0,
-            max_connections=100,
-            max_keepalive_connections=50,
-            http2=True,
-        )
+        with _client_lock:
+            if _http_client is None:
+                _http_client = PaginatedHTTPClient(
+                    timeout=60.0,
+                    max_connections=100,
+                    max_keepalive_connections=50,
+                    http2=True,
+                )
     return _http_client
 
 
@@ -155,7 +159,9 @@ class PaginatedHTTPClient:
                     # Check if response is "No data" text before parsing JSON
                     response_text = response.text
                     if response_text.startswith(":No data for the specified timeframe"):
-                        raise NoDataAvailableError(f"No data available: {response_text}")
+                        raise NoDataAvailableError(
+                            f"No data available: {response_text}"
+                        )
 
                     # Parse as regular JSON
                     data = response.json()
@@ -173,7 +179,9 @@ class PaginatedHTTPClient:
 
                     if collect_items and all_items is not None:
                         # Try common response patterns
-                        items = data.get("response", data.get("data", data.get("items", [])))
+                        items = data.get(
+                            "response", data.get("data", data.get("items", []))
+                        )
                         if isinstance(items, list):
                             all_items.extend(items)
 
@@ -188,8 +196,12 @@ class PaginatedHTTPClient:
                     current_url = None
 
             except httpx.HTTPStatusError as e:
-                error_detail = e.response.text if hasattr(e.response, "text") else str(e)
-                logger.error(f"HTTP error on page {page_count}: {e.response.status_code}: {error_detail}")
+                error_detail = (
+                    e.response.text if hasattr(e.response, "text") else str(e)
+                )
+                logger.error(
+                    f"HTTP error on page {page_count}: {e.response.status_code}: {error_detail}"
+                )
                 raise
             except Exception as e:
                 if isinstance(e, NoDataAvailableError):
@@ -197,7 +209,10 @@ class PaginatedHTTPClient:
                 logger.error(f"Error fetching page {page_count}: {e}")
                 raise RuntimeError(f"Failed to fetch page {page_count}: {e}") from e
 
-        logger.info(f"Fetched {page_count} pages" + (f" with {len(all_items)} total items" if all_items else ""))
+        logger.info(
+            f"Fetched {page_count} pages"
+            + (f" with {len(all_items)} total items" if all_items else "")
+        )
 
         # Build result dictionary
         result = {
@@ -211,9 +226,13 @@ class PaginatedHTTPClient:
             return validated_model
         except ValidationError as e:
             logger.error(f"Response validation failed: {e}")
-            raise RuntimeError(f"Failed to validate response with {response_model.__name__}: {e}") from e
+            raise RuntimeError(
+                f"Failed to validate response with {response_model.__name__}: {e}"
+            ) from e
 
-    def _fetch_single_page(self, url: str, headers: Optional[Dict[str, str]] = None) -> httpx.Response:
+    def _fetch_single_page(
+        self, url: str, headers: Optional[Dict[str, str]] = None
+    ) -> httpx.Response:
         """
         Fetch a single page of data.
 
@@ -256,7 +275,9 @@ class PaginatedHTTPClient:
             logger.error(f"Request failed for {url}: {e}")
             raise
 
-    def _stream_items(self, response: httpx.Response, item_path: str) -> Iterator[Dict[str, Any]]:
+    def _stream_items(
+        self, response: httpx.Response, item_path: str
+    ) -> Iterator[Dict[str, Any]]:
         """
         Stream individual items from a JSON response.
 

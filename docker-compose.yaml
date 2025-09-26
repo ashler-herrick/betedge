@@ -36,39 +36,6 @@ services:
     networks:
       - betedge-network
 
-  application:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: betedge-data
-    depends_on:
-      minio:
-        condition: service_healthy
-    ports:
-      - "25510:25510"
-    environment:
-      # MinIO Configuration
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin123
-      MINIO_BUCKET: betedge-data
-      MINIO_SECURE: "false"
-      MINIO_REGION: us-east-1
-      # ThetaTerminal Configuration  
-      THETA_BASE_URL: "http://172.18.0.1:25510/v2"
-    env_file:
-      - .env
-    volumes:
-      - ./ThetaTerminal.jar:/app/ThetaTerminal.jar:ro
-      - theta-data:/home/betedge/.theta
-    networks:
-      - betedge-network
-    restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
 networks:
   betedge-network:
@@ -76,4 +43,3 @@ networks:
 
 volumes:
   minio-data:
-  theta-data:

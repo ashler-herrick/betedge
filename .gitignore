@@ -19,3 +19,9 @@ wheels/
 
 .python-version
 .vscode
+
+*.db
+*.db-shm
+*.db-wal
+
+creds.txt

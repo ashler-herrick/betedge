@@ -33,4 +33,8 @@ def generate_schema_from_model(model_class) -> dict:
     field_names = list(fields.keys())
     arrow_types = [python_to_arrow_type(field.annotation) for field in fields.values()]
 
-    return {"field_names": field_names, "arrow_types": arrow_types, "field_count": len(field_names)}
+    return {
+        "field_names": field_names,
+        "arrow_types": arrow_types,
+        "field_count": len(field_names),
+    }

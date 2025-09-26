@@ -168,13 +168,19 @@ def main():
 
                         # Parse message for insights
                         if "days" in message:
-                            print("📅 Date Processing: Message indicates daily processing")
+                            print(
+                                "📅 Date Processing: Message indicates daily processing"
+                            )
                         if "expiration" in message.lower():
-                            print("📊 Expiration Processing: Multiple expirations handled")
+                            print(
+                                "📊 Expiration Processing: Multiple expirations handled"
+                            )
 
                     if "processing_time_ms" in data:
                         processing_time = data["processing_time_ms"]
-                        print(f"⏱️  Processing Time: {processing_time:,}ms ({processing_time / 1000:.2f}s)")
+                        print(
+                            f"⏱️  Processing Time: {processing_time:,}ms ({processing_time / 1000:.2f}s)"
+                        )
 
                     if "storage_location" in data:
                         storage_location = data["storage_location"]
@@ -186,7 +192,9 @@ def main():
                         records_count = data.get("records_count", 0)
                         print(f"📊 Records Count: {records_count:,}")
                         if records_count > 0:
-                            print(f"💾 Data Size: Processed {records_count:,} option records")
+                            print(
+                                f"💾 Data Size: Processed {records_count:,} option records"
+                            )
 
             except json.JSONDecodeError as e:
                 print(f"❌ Failed to parse JSON response: {e}")

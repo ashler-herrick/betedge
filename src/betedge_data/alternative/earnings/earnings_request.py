@@ -12,8 +12,12 @@ class EarningsRequest(BaseModel):
     """Request parameters for monthly earnings data."""
 
     # Required fields
-    year: int = Field(..., ge=2020, le=2030, description="Year for earnings data collection")
-    month: int = Field(..., ge=1, le=12, description="Month for earnings data collection (1-12)")
+    year: int = Field(
+        ..., ge=2020, le=2030, description="Year for earnings data collection"
+    )
+    month: int = Field(
+        ..., ge=1, le=12, description="Month for earnings data collection (1-12)"
+    )
 
     # Optional fields with defaults
     return_format: str = Field(default="parquet", description="Return format: parquet")
@@ -56,13 +60,23 @@ class EarningsRecord(BaseModel):
 
     # Financial fields (nullable for missing data)
     eps: Optional[float] = Field(default=None, description="Earnings per share")
-    eps_forecast: Optional[float] = Field(default=None, description="Consensus EPS forecast")
-    surprise_pct: Optional[float] = Field(default=None, description="Earnings surprise percentage")
-    market_cap: Optional[int] = Field(default=None, description="Market capitalization in dollars")
+    eps_forecast: Optional[float] = Field(
+        default=None, description="Consensus EPS forecast"
+    )
+    surprise_pct: Optional[float] = Field(
+        default=None, description="Earnings surprise percentage"
+    )
+    market_cap: Optional[int] = Field(
+        default=None, description="Market capitalization in dollars"
+    )
 
     # Additional fields
-    fiscal_quarter_ending: Optional[str] = Field(default=None, description="Fiscal quarter ending (e.g., 'Mar/2025')")
-    num_estimates: Optional[int] = Field(default=None, description="Number of analyst estimates")
+    fiscal_quarter_ending: Optional[str] = Field(
+        default=None, description="Fiscal quarter ending (e.g., 'Mar/2025')"
+    )
+    num_estimates: Optional[int] = Field(
+        default=None, description="Number of analyst estimates"
+    )
 
     @field_validator("symbol")
     @classmethod

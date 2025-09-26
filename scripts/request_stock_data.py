@@ -143,7 +143,9 @@ def main():
 
                     if "processing_time_ms" in data:
                         processing_time = data["processing_time_ms"]
-                        print(f"⏱️  Processing Time: {processing_time:,}ms ({processing_time / 1000:.2f}s)")
+                        print(
+                            f"⏱️  Processing Time: {processing_time:,}ms ({processing_time / 1000:.2f}s)"
+                        )
 
                     if "storage_location" in data:
                         print(f"🗄️  Storage Location: {data['storage_location']}")

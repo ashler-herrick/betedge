@@ -1,5 +1,5 @@
 """
-Configuration models for MinIO object storage.
+MinIO publisher for object storage operations.
 """
 
 from pydantic import Field

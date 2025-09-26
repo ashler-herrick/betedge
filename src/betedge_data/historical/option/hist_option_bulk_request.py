@@ -17,15 +17,23 @@ class HistOptionBulkRequest(BaseModel):
 
     # Required fields
     root: str = Field(..., description="Security symbol")
-    data_schema: str = Field(..., description="Data schema type: options include 'quote', 'eod'")
+    data_schema: str = Field(
+        ..., description="Data schema type: options include 'quote', 'eod'"
+    )
 
     # Date fields (one of these must be provided)
-    date: Optional[int] = Field(None, description="The date in YYYYMMDD format (for quote/single-day EOD)")
-    yearmo: Optional[int] = Field(None, description="Year-month in YYYYMM format for EOD data")
+    date: Optional[int] = Field(
+        None, description="The date in YYYYMMDD format (for quote/single-day EOD)"
+    )
+    yearmo: Optional[int] = Field(
+        None, description="Year-month in YYYYMM format for EOD data"
+    )
 
     # Optional fields (with defaults)
     interval: int = Field(default=900_000, ge=0, description="Interval in milliseconds")
-    return_format: str = Field(default="parquet", description="Return format: parquet or ipc")
+    return_format: str = Field(
+        default="parquet", description="Return format: parquet or ipc"
+    )
 
     # Default, non configurable
     exp: int = 0
@@ -88,7 +96,9 @@ class HistOptionBulkRequest(BaseModel):
     def validate_interval(cls, v: int) -> int:
         """Validate interval constraints per ThetaData API."""
         if v < 60000:
-            raise ValueError(f"Intervals under 60000ms (1 minute) are not officially supported, got {v}")
+            raise ValueError(
+                f"Intervals under 60000ms (1 minute) are not officially supported, got {v}"
+            )
         return v
 
     @field_validator("return_format")
@@ -104,7 +114,9 @@ class HistOptionBulkRequest(BaseModel):
     def validate_data_schema(cls, v: str) -> str:
         """Validate data_schema is supported."""
         if v not in ["quote", "ohlc", "eod"]:
-            raise ValueError(f"data_schema must be 'quote', 'ohlc', or 'eod', got '{v}'")
+            raise ValueError(
+                f"data_schema must be 'quote', 'ohlc', or 'eod', got '{v}'"
+            )
         return v
 
     @model_validator(mode="after")
@@ -177,7 +189,7 @@ class HistOptionBulkRequest(BaseModel):
                 "exp": self.exp,
                 "start_date": self.date,
                 "end_date": self.date,
-                "ilvl": self.interval,
+                "ivl": self.interval,
             }
         return f"{base_url}?{urlencode(params)}"
 
