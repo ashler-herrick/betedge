@@ -1,5 +1,6 @@
 import uuid
 import requests
+import os
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Tuple, Optional
@@ -7,11 +8,14 @@ from typing import Tuple, Optional
 import polars as pl
 from minio import Minio
 from minio.error import S3Error
+from dotenv import load_dotenv
 
 from betedge_data.client.client_requests import BaseClientRequest
 from betedge_data.client.client_requests import Request
 from betedge_data.client.job import JobInfo, JobStatus, create_job
 from betedge_data.client.minio import MinIOConfig
+
+load_dotenv()
 
 logging.basicConfig(
     format="%(asctime)s | Thread-%(thread)d (%(threadName)s) | %(levelname)s | %(message)s"
@@ -21,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class BetEdgeClient:
-    def __init__(self, max_workers: int = 4) -> None:
+    def __init__(self, max_workers: int = int(os.getenv("HTTP_CONCURRENCY") or 4)) -> None:
         """Initialize the client, creates a DataProcessingService and checks ThetaTerminal connection."""
         self.minio_config = MinIOConfig()
         self.minio_client = Minio(

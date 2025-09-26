@@ -5,10 +5,12 @@ Generalized HTTP client with pagination support for API interactions.
 from typing import Any, Dict, Iterator, Optional, Type, TypeVar
 import logging
 import threading
+import os
 
 import httpx
 import ijson
 from pydantic import BaseModel, ValidationError
+from dotenv import load_dotenv
 
 from betedge_data.common.exceptions import NoDataAvailableError
 
@@ -20,6 +22,7 @@ T = TypeVar("T", bound=BaseModel)
 _http_client: Optional["PaginatedHTTPClient"] = None
 _client_lock = threading.Lock()
 
+load_dotenv()
 
 def get_http_client() -> "PaginatedHTTPClient":
     """
@@ -34,8 +37,8 @@ def get_http_client() -> "PaginatedHTTPClient":
             if _http_client is None:
                 _http_client = PaginatedHTTPClient(
                     timeout=60.0,
-                    max_connections=4,
-                    max_keepalive_connections=4,
+                    max_connections=int(os.getenv("HTTP_CONCURRENCY") or 4),
+                    max_keepalive_connections=int(os.getenv("HTTP_CONCURRENCY") or 4),
                     http2=True,
                 )
     return _http_client
