@@ -1,4 +1,4 @@
-# Combined Dockerfile for ThetaTerminal + Data Manager API
+# Dockerfile for ThetaTerminal Background Service
 FROM eclipse-temurin:21-jre-jammy
 
 # Install UV manually with latest version system-wide
@@ -26,7 +26,7 @@ WORKDIR /app
 
 # Copy project files
 COPY pyproject.toml uv.lock README.md ./
-COPY betedge_data/ ./betedge_data/
+COPY src/betedge_data/ .src/betedge_data/
 COPY ThetaTerminal.jar ./
 
 # Copy supervisor configuration
@@ -50,13 +50,12 @@ RUN mkdir -p /var/log/supervisor && \
 
 USER betedge
 
-# Expose API port
-EXPOSE 8000
+# No ports exposed - ThetaTerminal runs as background service
 
-# Health check - check both ThetaTerminal and API
+# Health check - verify ThetaTerminal process is running
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD pgrep -f "java.*ThetaTerminal" > /dev/null || exit 1
 
-# Start supervisor which will manage both processes
-ENTRYPOINT ["supervisord", "-c", "/etc/supervisor/supervisord.conf"]
+# Start supervisor to manage ThetaTerminal process
+ENTRYPOINT ["uv", "run", "python", "-m", "betedge_data.theta.client"]
 

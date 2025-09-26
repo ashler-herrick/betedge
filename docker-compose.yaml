@@ -45,7 +45,6 @@ services:
       minio:
         condition: service_healthy
     ports:
-      - "8000:8000"
       - "25510:25510"
     environment:
       # MinIO Configuration
