@@ -6,6 +6,23 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 
+[manifest]
+members = [
+    "betedge-data",
+    "betedge-processing",
+]
+
+[manifest.dependency-groups]
+dev = [
+    { name = "ipykernel", specifier = ">=6.30.1" },
+    { name = "polars", specifier = ">=1.31.0" },
+    { name = "pytest", specifier = ">=8.4.1" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "pytest-mock", specifier = ">=3.11.0" },
+    { name = "pytest-timeout", specifier = ">=2.1.0" },
+    { name = "requests", specifier = ">=2.32.4" },
+]
+
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -83,7 +100,7 @@ wheels = [
 [[package]]
 name = "betedge-data"
 version = "0.1.0"
-source = { editable = "." }
+source = { editable = "packages/betedge-data" }
 dependencies = [
     { name = "boto3" },
     { name = "httpx", extra = ["http2"] },
@@ -95,17 +112,6 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ipykernel" },
-    { name = "polars" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "pytest-mock" },
-    { name = "pytest-timeout" },
-    { name = "requests" },
 ]
 
 [package.metadata]
@@ -122,15 +128,21 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.1.1" },
 ]
 
-[package.metadata.requires-dev]
-dev = [
-    { name = "ipykernel", specifier = ">=6.30.1" },
+[[package]]
+name = "betedge-processing"
+version = "0.1.0"
+source = { editable = "packages/betedge-processing" }
+dependencies = [
+    { name = "betedge-data" },
+    { name = "polars" },
+    { name = "pyarrow" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "betedge-data", editable = "packages/betedge-data" },
     { name = "polars", specifier = ">=1.31.0" },
-    { name = "pytest", specifier = ">=8.4.1" },
-    { name = "pytest-cov", specifier = ">=4.1.0" },
-    { name = "pytest-mock", specifier = ">=3.11.0" },
-    { name = "pytest-timeout", specifier = ">=2.1.0" },
-    { name = "requests", specifier = ">=2.32.4" },
+    { name = "pyarrow", specifier = ">=20.0.0" },
 ]
 
 [[package]]
