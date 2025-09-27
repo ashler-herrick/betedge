@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from betedge_data.client.client_requests import BaseClientRequest
 from betedge_data.client.client_requests import Request
 from betedge_data.client.job import JobInfo, JobStatus, create_job
-from betedge_data.client.minio import MinIOConfig
+from betedge_data.client.minio import MinIOConfig, get_minio_storage_options
 
 load_dotenv()
 
@@ -102,6 +102,14 @@ class BetEdgeClient:
     def _process_subrequest(
         self, subreq: Request, request: BaseClientRequest
     ) -> Tuple[bool, Optional[str]]:
+        """
+        Processes a subrequest a.k.a a single Request object. ClientRequests are split into smaller requests so that they can be requested in bulk
+        but transferred over the network in chunks.
+
+        Args:
+            subreq (Request): The individual Reqest object to process.
+            request (BaseClientRequest): The bulk BaseClientRequest object, used for retrieving the correct client.
+        """
         try:
             object_key = subreq.generate_object_key()
 
@@ -154,7 +162,7 @@ class BetEdgeClient:
         ]
 
         # Create lazyframe from all the keys
-        storage_options = self._get_minio_storage_options()
+        storage_options = get_minio_storage_options(self.minio_config)
         dfs = [pl.read_parquet(uri, storage_options=storage_options) for uri in uris]
 
         return pl.concat(dfs)

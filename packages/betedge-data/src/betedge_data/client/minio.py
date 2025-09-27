@@ -29,3 +29,21 @@ class MinIOConfig(BaseSettings):
         "case_sensitive": False,
         "extra": "ignore",  # Ignore extra environment variables
     }
+
+
+def get_minio_storage_options(config: MinIOConfig) -> dict:
+    """Convert MinIO config vars to Polars-compatible storage options"""
+    endpoint = config.endpoint
+    secure = config.secure
+
+    # Build the endpoint URL
+    protocol = "https" if secure else "http"
+    endpoint_url = f"{protocol}://{endpoint}"
+
+    return {
+        "aws_access_key_id": config.access_key,
+        "aws_secret_access_key": config.secret_key,
+        "aws_endpoint_url": endpoint_url,
+        "aws_region": "us-east-1",
+        "aws_allow_http": str(not secure).lower(),
+    }
