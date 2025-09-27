@@ -3,9 +3,11 @@ Historical stock data configuration.
 """
 
 import os
-from typing import Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 class HistoricalConfig(BaseSettings):
@@ -38,7 +40,7 @@ class HistoricalConfig(BaseSettings):
         description="ThetaData subscription tier (value, standard, pro)",
     )
     max_concurrent_requests: int = Field(
-        default=4,
+        default=int(os.getenv("HTTP_CONCURRENCY") or 4),
         description="Maximum concurrent HTTP requests (sync with ThetaData HTTP_CONCURRENCY)",
     )
 
@@ -51,12 +53,9 @@ class HistoricalConfig(BaseSettings):
     }
 
 
-_config: Optional[HistoricalConfig] = None
+global _config
+_config: HistoricalConfig = HistoricalConfig()
 
 
-def get_hist_client_config() -> HistoricalConfig:
-    global _config
-    if _config is None:
-        _config = HistoricalConfig()
-
+def get_historical_config() -> HistoricalConfig:
     return _config

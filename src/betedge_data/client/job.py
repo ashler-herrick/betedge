@@ -7,14 +7,11 @@ monitoring the progress of long-running data processing operations.
 
 import logging
 from logging.handlers import RotatingFileHandler
-import sqlite3
-import threading
-import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional
 from uuid import UUID
 
 logger = logging.getLogger(__name__)

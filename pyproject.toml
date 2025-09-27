@@ -46,6 +46,7 @@ select = [
 ignore = [
     "E501",  # Line too long (handled by formatter)
     "E203",  # Whitespace before ':' (conflicts with Black)
+    "E402"
 ]
 
 [dependency-groups]

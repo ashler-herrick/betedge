@@ -4,7 +4,7 @@ from betedge_data import ClientOptionRequest
 client = BetEdgeClient()
 
 request = ClientOptionRequest(
-    root="DLTR",
+    root="SPY",
     start_date="20240101",
     end_date="20240131",
     data_schema="quote",

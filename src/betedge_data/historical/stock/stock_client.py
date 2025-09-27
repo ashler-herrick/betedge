@@ -8,7 +8,7 @@ import pyarrow.ipc as ipc
 from betedge_data.common.http import get_http_client
 from betedge_data.common.models import StockThetaDataResponse, TICK_SCHEMAS
 from betedge_data.common.exceptions import NoDataAvailableError
-from betedge_data.historical.config import HistoricalConfig
+from betedge_data.historical.config import get_historical_config
 from betedge_data.historical.stock.hist_stock_request import HistStockRequest
 from betedge_data.common.interface import IRequest
 
@@ -23,7 +23,7 @@ class HistoricalStockClient:
         """
         Initialize the historical stock client.
         """
-        self.config = HistoricalConfig()
+        self.config = get_historical_config()
         self.http_client = get_http_client()
 
     def get_data(self, request: IRequest) -> io.BytesIO:
@@ -41,9 +41,7 @@ class HistoricalStockClient:
         if not isinstance(request, HistStockRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
 
-        logger.info(
-            f"Starting data fetch for {request}"
-        )
+        logger.info(f"Starting data fetch for {request}")
 
         try:
             # Step 1: Build URL (delegates to request object)

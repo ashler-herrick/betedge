@@ -5,11 +5,11 @@ Data models for historical option data.
 from typing import Optional
 from pydantic import BaseModel, Field, field_validator, model_validator
 from betedge_data.historical.utils import interval_ms_to_string, expiration_to_string
-from betedge_data.historical.config import get_hist_client_config
+from betedge_data.historical.config import get_historical_config
 from datetime import datetime
 from urllib.parse import urlencode
 
-CONFIG = get_hist_client_config()
+CONFIG = get_historical_config()
 
 
 class HistOptionBulkRequest(BaseModel):

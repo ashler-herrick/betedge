@@ -18,14 +18,16 @@ from betedge_data.client.minio import MinIOConfig
 load_dotenv()
 
 logging.basicConfig(
-    format="%(asctime)s | Thread-%(thread)d (%(threadName)s) | %(levelname)s | %(message)s"
-    ,level=logging.INFO
+    format="%(asctime)s | Thread-%(thread)d (%(threadName)s) | %(levelname)s | %(message)s",
+    level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
 
 class BetEdgeClient:
-    def __init__(self, max_workers: int = int(os.getenv("HTTP_CONCURRENCY") or 4)) -> None:
+    def __init__(
+        self, max_workers: int = int(os.getenv("HTTP_CONCURRENCY") or 4)
+    ) -> None:
         """Initialize the client, creates a DataProcessingService and checks ThetaTerminal connection."""
         self.minio_config = MinIOConfig()
         self.minio_client = Minio(
@@ -53,7 +55,7 @@ class BetEdgeClient:
             logger.error(f"Failed to ensure bucket exists: {e}")
             raise RuntimeError(f"MinIO bucket setup failed: {e}") from e
 
-    def request_data(self, request: BaseClientRequest) -> JobInfo:
+    def request_data(self, request: BaseClientRequest, max_retries: int = 1) -> JobInfo:
         """
         A request to populate the data lake with files.
 
@@ -67,29 +69,33 @@ class BetEdgeClient:
         logger.info(f"Processing request for {request}.")
 
         reqs = request.get_subrequests()
-        job_info = create_job(request_id, len(reqs))
-
+        total_items = len(reqs)
+        job_info = create_job(request_id, total_items)
         completed = 0
-        errors = ""
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = [
-                executor.submit(self._process_subrequest, req, request) for req in reqs
-            ]
 
-            for future in as_completed(futures):
-                result = future.result()
+        while i := 0 < max_retries and completed < total_items:
+            errors = ""
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = [
+                    executor.submit(self._process_subrequest, req, request)
+                    for req in reqs
+                ]
 
-                if result[0]:
-                    completed += 1
-                else:
-                    errors += str(result[1])
+                for future in as_completed(futures):
+                    result = future.result()  # A tuple containing a bool indicating success/failure and error messages
 
-        job_info.completed_items = completed
-        if job_info.completed_items != job_info.total_items:
-            job_info.status = JobStatus.FAILED
-            job_info.error_message = errors
-        else:
-            job_info.status = JobStatus.COMPLETED
+                    if result[0]:
+                        completed += 1
+                    else:
+                        errors += str(result[1])
+
+            job_info.completed_items = completed
+            if job_info.completed_items != job_info.total_items:
+                job_info.status = JobStatus.FAILED
+                job_info.error_message = errors
+            else:
+                job_info.status = JobStatus.COMPLETED
+            i += 1
 
         return job_info
 
@@ -100,13 +106,13 @@ class BetEdgeClient:
             object_key = subreq.generate_object_key()
 
             if not request.force_refresh and self._file_exists(object_key):
-                    return (True, None)
+                return (True, None)
             else:
                 try:
                     self.minio_client.remove_object(
                         self.minio_config.bucket, object_key
                     )
-                except S3Error as e:
+                except S3Error:
                     pass
 
             client = request.get_client()
@@ -140,14 +146,16 @@ class BetEdgeClient:
         # Get keys from subrequests
         subrequests = request.get_subrequests()
         object_keys = [sub.generate_object_key() for sub in subrequests]
-        
-        uris = [f"s3://{self.minio_config.bucket}/{key}" for key in object_keys if self._file_exists(key)]
+
+        uris = [
+            f"s3://{self.minio_config.bucket}/{key}"
+            for key in object_keys
+            if self._file_exists(key)
+        ]
 
         # Create lazyframe from all the keys
         storage_options = self._get_minio_storage_options()
-        dfs = [
-            pl.read_parquet(uri, storage_options=storage_options) for uri in uris
-        ]
+        dfs = [pl.read_parquet(uri, storage_options=storage_options) for uri in uris]
 
         return pl.concat(dfs)
 
@@ -155,13 +163,13 @@ class BetEdgeClient:
         try:
             self.minio_client.stat_object(self.minio_config.bucket, object_key)
             return True
-        except S3Error as e:
+        except S3Error:
             return False
 
     def _ensure_theta_running(self) -> None:
         """Ensure ThetaTerminal is accessible."""
         try:
-            response = requests.get(
+            requests.get(
                 "http://127.0.0.1:25510/v2/list/dates/stock/quote?root=AAPL", timeout=5
             )
         except Exception:

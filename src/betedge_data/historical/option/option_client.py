@@ -13,7 +13,7 @@ from betedge_data.common.models import (
     CONTRACT_SCHEMA,
 )
 from betedge_data.common.exceptions import NoDataAvailableError
-from betedge_data.historical.config import get_hist_client_config
+from betedge_data.historical.config import get_historical_config
 from betedge_data.historical.option.hist_option_bulk_request import (
     HistOptionBulkRequest,
 )
@@ -34,7 +34,7 @@ class HistoricalOptionClient:
         Args:
             config: Configuration instance, uses default if None
         """
-        self.config = get_hist_client_config()
+        self.config = get_historical_config()
         self.max_workers = self.config.max_concurrent_requests
         self.http_client = get_http_client()
         self.stock_client = HistoricalStockClient()
@@ -54,9 +54,7 @@ class HistoricalOptionClient:
         if not isinstance(request, HistOptionBulkRequest):
             raise ValueError(f"Unsupported request type: {type(request)}")
 
-        logger.info(
-            f"Starting data fetch for {request}"
-        )
+        logger.info(f"Starting data fetch for {request}")
 
         try:
             # Step 1: Build URL (delegates to pure function)

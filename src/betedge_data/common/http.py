@@ -24,6 +24,7 @@ _client_lock = threading.Lock()
 
 load_dotenv()
 
+
 def get_http_client() -> "PaginatedHTTPClient":
     """
     Get the shared HTTP client instance.
@@ -36,7 +37,7 @@ def get_http_client() -> "PaginatedHTTPClient":
         with _client_lock:
             if _http_client is None:
                 _http_client = PaginatedHTTPClient(
-                    timeout=60.0,
+                    timeout=300.0,
                     max_connections=int(os.getenv("HTTP_CONCURRENCY") or 4),
                     max_keepalive_connections=int(os.getenv("HTTP_CONCURRENCY") or 4),
                     http2=True,
