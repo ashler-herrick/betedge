@@ -19,15 +19,15 @@ logging.getLogger("betedge_data").setLevel(logging.INFO)
 
 # Now import your modules
 from betedge_data.client.client import BetEdgeClient
-from betedge_data.client.client_requests import (
-    ClientOptionRequest,
-    ClientStockRequest,
-    ClientEarningsRequest,
+from betedge_data.client.requests import (
+    OptionRequest,
+    StockRequest,
+    EarningsRequest,
 )
 
 __all__ = [
     "BetEdgeClient",
-    "ClientOptionRequest",
-    "ClientStockRequest",
-    "ClientEarningsRequest",
+    "OptionRequest",
+    "StockRequest",
+    "EarningsRequest",
 ]

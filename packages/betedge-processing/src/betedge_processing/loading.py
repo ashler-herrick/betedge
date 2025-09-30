@@ -29,7 +29,7 @@ def glob_eod(
     Returns:
         List of glob patterns
     """
-    if not start_yearmo and not end_yearmo and get_all == False:
+    if not start_yearmo and not end_yearmo and not get_all:
         raise ValueError("At least start_yearmo must be provided if get_all is False.")
 
     base_path = f"{bucket}/historical-options/eod/{ticker}"
