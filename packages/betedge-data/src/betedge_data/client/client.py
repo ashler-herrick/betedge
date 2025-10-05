@@ -117,7 +117,7 @@ class BetEdgeClient:
         return cls._instance
 
     def _start(self):
-        self.running = True
+        self._running = True
         logger.info(
             f"Starting BetEdge client with {self.max_workers} worker threads per pool"
         )
@@ -218,7 +218,7 @@ class BetEdgeClient:
         thread_name = threading.current_thread().name
         logger.debug(f"HTTP worker {thread_name} started and waiting for jobs")
 
-        while self.running:
+        while self._running:
             try:
                 job = self.http_job_queue.get(timeout=1)
                 logger.debug(
@@ -253,7 +253,7 @@ class BetEdgeClient:
             f"Response processor {thread_name} started and waiting for HTTP results"
         )
 
-        while self.running:
+        while self._running:
             try:
                 http_result = self.http_result_queue.get(timeout=1)
                 logger.debug(
@@ -298,7 +298,7 @@ class BetEdgeClient:
             f"File writer {thread_name} started and waiting for file write jobs"
         )
 
-        while self.running:
+        while self._running:
             try:
                 file_write_job = self.file_write_queue.get(timeout=1)
                 logger.debug(
