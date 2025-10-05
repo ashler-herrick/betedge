@@ -25,3 +25,9 @@ wheels/
 *.db-wal
 
 creds.txt
+
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb

@@ -1,0 +1,17 @@
+[package]
+name = "betedge-processing"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "betedge_processing"
+crate-type = ["cdylib"]
+
+[dependencies]
+implied-vol = "2.0.0"
+polars = "0.51.0"
+pyo3 = {version="0.25.0", features = ["extension-module", "abi3-py311"]}
+pyo3-polars = "0.24.0"
+rayon = "1.11.0"
+statrs = "0.18.0"
+
